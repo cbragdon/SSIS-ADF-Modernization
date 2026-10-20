@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:refId="Package" DTS:ExecutableType="Microsoft.Package" DTS:ObjectName="SimpleCopy">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager DTS:CreationName="OLEDB" DTS:DTSID="{4}" DTS:ObjectName="Src">
+      <DTS:ObjectData><DTS:ConnectionManager DTS:ConnectionString="Data Source=SRC;Provider=MSOLEDBSQL.1;User ID=etl;Password=hunter2;" /></DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+  <DTS:Executables>
+    <DTS:Executable DTS:refId="Package\Truncate" DTS:ExecutableType="Microsoft.ExecuteSQLTask" DTS:ObjectName="Truncate" />
+    <DTS:Executable DTS:refId="Package\Copy" DTS:ExecutableType="Microsoft.Pipeline" DTS:ObjectName="Copy">
+      <DTS:ObjectData><pipeline version="1"><components>
+        <component refId="a" componentClassID="Microsoft.OLEDBSource" name="S" />
+        <component refId="b" componentClassID="Microsoft.DataConvert" name="Conv" />
+        <component refId="c" componentClassID="Microsoft.OLEDBDestination" name="D" />
+      </components></pipeline></DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

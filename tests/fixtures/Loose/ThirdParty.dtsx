@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:ExecutableType="Microsoft.Package">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:Executables>
+    <DTS:Executable DTS:refId="Package\Loop" DTS:ExecutableType="STOCK:FOREACHLOOP" DTS:ObjectName="Loop">
+      <DTS:ForEachEnumerator DTS:CreationName="Microsoft.ForEachFileEnumerator" />
+      <DTS:Executables>
+        <DTS:Executable DTS:refId="Package\Loop\KWS" DTS:ExecutableType="KingswaySoft.IntegrationToolkit.DynamicsCrm.CrmSourceTask, KingswaySoft" DTS:ObjectName="KWS" />
+      </DTS:Executables>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

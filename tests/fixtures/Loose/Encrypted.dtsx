@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:ExecutableType="Microsoft.Package" DTS:ProtectionLevel="3">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:EncryptedData>AAAA</DTS:EncryptedData>
+</DTS:Executable>

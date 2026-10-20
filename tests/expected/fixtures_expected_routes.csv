@@ -1,0 +1,11 @@
+Source,Project,Package,TargetSsisVersion,ExpectedRoute,ExpectedEffectiveRoute,Covers
+Ispac,ProjB,Child.dtsx,2025,Remediate2025,Remediate2025,Attunity CDC Source via managed component host; .ispac reading
+Ispac,ProjB,Parent Pkg.dtsx,2025,KeepOnSsisVm,Remediate2025,Percent-encoded OPC part name; child roll-up inside .ispac
+FileSystem,ProjA,Child.dtsx,2025,Remediate2025,Remediate2025,Attunity CDC Source in source-control project folder
+FileSystem,ProjA,Parent.dtsx,2025,KeepOnSsisVm,Remediate2025,Script Task; Script Component; disabled FTP Task; UNC flat file; Windows-auth project connection; roll-up
+FileSystem,(file system),SimpleCopy.dtsx,2025,AdfNative-Low,AdfNative-Low,SQL-auth copy; password masking
+FileSystem,(file system),ThirdParty.dtsx,2025,KeepOnSsisVm,KeepOnSsisVm,Unrecognized third-party task defaults to KeepOnSsisVm; Foreach File Enumerator
+FileSystem,(file system),Encrypted.dtsx,2025,ReviewRequired,ReviewRequired,EncryptAllWithPassword package body
+FileSystem,(file system),Legacy2008.dtsx,2025,ReviewRequired,ReviewRequired,PackageFormatVersion 3 (SSIS 2008 R2)
+FileSystem,ProjA,Child.dtsx,2022,KeepOnSsisVm,KeepOnSsisVm,2025 removals are future risk on a 2022 host
+FileSystem,ProjA,Parent.dtsx,2022,KeepOnSsisVm,KeepOnSsisVm,Roll-up under 2022 target

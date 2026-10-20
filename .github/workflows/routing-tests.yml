@@ -1,0 +1,35 @@
+# Offline regression test for the SSIS assessment routing rules.
+# Runs on every push and pull request; needs no SQL Server (uses tests/fixtures).
+name: Assessment routing tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  fixtures:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse-check every PowerShell script
+        shell: pwsh
+        run: |
+          $bad = 0
+          Get-ChildItem -Recurse -Filter *.ps1 | ForEach-Object {
+            $tokens = $null; $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors)
+            if ($errors) { $bad++; Write-Host "::error file=$($_.FullName)::$($errors[0].Message)" }
+          }
+          if ($bad) { exit 1 }
+
+      - name: Run routing regression test (fixtures)
+        shell: pwsh
+        run: ./scripts/test-packages/03_Test-AssessmentRouting.ps1 -Mode Fixtures -OutputRoot "$env:RUNNER_TEMP/assessment"
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: routing-test-report
+          path: ${{ runner.temp }}/assessment/routing_test_*.csv

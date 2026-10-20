@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:refId="Package" DTS:ExecutableType="Microsoft.Package" DTS:ObjectName="Parent" DTS:ProtectionLevel="0">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[Landing]" DTS:CreationName="FLATFILE" DTS:DTSID="{11111111-0000-0000-0000-000000000001}" DTS:ObjectName="Landing">
+      <DTS:ObjectData><DTS:ConnectionManager DTS:ConnectionString="\\fileserver\drop\customers.csv" /></DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+  <DTS:Executables>
+    <DTS:Executable DTS:refId="Package\Script Prep" DTS:ExecutableType="Microsoft.ScriptTask" DTS:ObjectName="Script Prep" />
+    <DTS:Executable DTS:refId="Package\Old Task" DTS:ExecutableType="Microsoft.FtpTask" DTS:ObjectName="Old Task" DTS:Disabled="True" />
+    <DTS:Executable DTS:refId="Package\Load Customers" DTS:ExecutableType="Microsoft.Pipeline" DTS:ObjectName="Load Customers">
+      <DTS:ObjectData><pipeline version="1"><components>
+        <component refId="a" componentClassID="Microsoft.FlatFileSource" name="Read CSV" />
+        <component refId="b" componentClassID="Microsoft.DerivedColumn" name="Derive" />
+        <component refId="c" componentClassID="Microsoft.ManagedComponentHost" name="Script Clean"><properties><property name="UserComponentTypeName">Microsoft.SqlServer.Dts.Pipeline.ScriptComponentHost, Microsoft.SqlServer.TxScript, Version=16.0.0.0</property></properties></component>
+        <component refId="d" componentClassID="Microsoft.OLEDBDestination" name="Write DW" connectionManagerID="{22222222-0000-0000-0000-000000000002}:external" />
+      </components></pipeline></DTS:ObjectData>
+    </DTS:Executable>
+    <DTS:Executable DTS:refId="Package\Run Child" DTS:ExecutableType="Microsoft.ExecutePackageTask" DTS:ObjectName="Run Child">
+      <DTS:ObjectData><ExecutePackageTask><UseProjectReference>True</UseProjectReference><PackageName>Child.dtsx</PackageName></ExecutePackageTask></DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

@@ -1,0 +1,16 @@
+Source,Project,Package,TargetSsisVersion,ExpectedRoute,ExpectedEffectiveRoute,Covers
+SSISDB,AssessmentTests,T01_CopySqlAuth.dtsx,2025,AdfNative-Low,AdfNative-Low,Execute SQL; OLE DB source/destination; Data Conversion; SQL authentication; project connection manager; expression-driven connection string
+SSISDB,AssessmentTests,T02_CopyWindowsAuth.dtsx,2025,AdfNative-Medium,AdfNative-Medium,Windows authentication flag raises Low to Medium (Self-hosted IR)
+SSISDB,AssessmentTests,T03_TransformChain.dtsx,2025,AdfNative-Medium,AdfNative-Medium,Derived Column; Conditional Split; Lookup; Sort; Aggregate; Union All; Multicast; Row Count
+SSISDB,AssessmentTests,T04_ScriptTask.dtsx,2025,KeepOnSsisVm,KeepOnSsisVm,Script Task
+SSISDB,AssessmentTests,T05_ScriptComponent.dtsx,2025,KeepOnSsisVm,KeepOnSsisVm,Script Component inside a data flow
+SSISDB,AssessmentTests,T06_ContainersConstraints.dtsx,2025,AdfNative-Medium,AdfNative-Medium,Sequence; For Loop; Foreach File Enumerator; File System Task; UNC path; precedence constraints; OnError handler; property expressions
+SSISDB,AssessmentTests,T07_Parent.dtsx,2025,AdfNative-Low,KeepOnSsisVm,Execute Package (project reference) roll-up from child
+SSISDB,AssessmentTests,T08_Child.dtsx,2025,KeepOnSsisVm,KeepOnSsisVm,Child package with Script Task; package parameter
+SSISDB,AssessmentTests,T09_DisabledScriptTask.dtsx,2025,AdfNative-Low,AdfNative-Low,Disabled task excluded from routing
+SSISDB,AssessmentTests,T10_FlatFileToExcel.dtsx,2025,KeepOnSsisVm,KeepOnSsisVm,Flat File source over UNC; Excel destination; ACE provider
+SSISDB,AssessmentTests,T11_ParametersExpressions.dtsx,2025,AdfNative-Low,AdfNative-Low,Required/typed/sensitive package parameters; project parameter references; Expression Task
+SSISDB,AssessmentTests,T12_OleDbCommandScd.dtsx,2025,AdfNative-Medium,AdfNative-Medium,OLE DB Command; Slowly Changing Dimension
+SSISDB,AssessmentTests,T13_FtpAndSendMail.dtsx,2025,AdfNative-Medium,AdfNative-Medium,FTP Task; Send Mail Task; FTP and SMTP connection managers
+SSISDB,AssessmentTests,T14_FuzzyLookup.dtsx,2025,KeepOnSsisVm,KeepOnSsisVm,Fuzzy Lookup (built only if installed)
+SSISDB,AssessmentTests,T15_RemovedIn2025.dtsx,2025,Remediate2025,Remediate2025,SQL Server 2025 removed components (built only if installed)

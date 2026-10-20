@@ -1,0 +1,14 @@
+# Windows tooling: keep CRLF for scripts and SSIS artifacts on checkout.
+*.ps1    text eol=crlf
+*.psm1   text eol=crlf
+*.sql    text eol=crlf
+*.dtsx   text eol=crlf
+*.conmgr text eol=crlf
+*.dtproj text eol=crlf
+*.params text eol=crlf
+*.md     text eol=lf
+*.csv    text eol=crlf
+# Binary
+*.ispac  binary
+*.xlsx   binary
+*.pdf    binary

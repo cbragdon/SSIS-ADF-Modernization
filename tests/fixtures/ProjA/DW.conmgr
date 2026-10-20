@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<DTS:ConnectionManager xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:ObjectName="DW" DTS:DTSID="{22222222-0000-0000-0000-000000000002}" DTS:CreationName="OLEDB">
+  <DTS:ObjectData><DTS:ConnectionManager DTS:ConnectionString="Data Source=SQLDW01;Initial Catalog=DW;Provider=MSOLEDBSQL.1;Integrated Security=SSPI;" /></DTS:ObjectData>
+</DTS:ConnectionManager>

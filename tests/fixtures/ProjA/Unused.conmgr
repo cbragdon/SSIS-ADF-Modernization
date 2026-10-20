@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<DTS:ConnectionManager xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:ObjectName="Ora" DTS:DTSID="{33333333-0000-0000-0000-000000000003}" DTS:CreationName="MSORA">
+  <DTS:ObjectData><DTS:ConnectionManager DTS:ConnectionString="SERVER=ora;USERNAME=x;Password=Secret123;" /></DTS:ObjectData>
+</DTS:ConnectionManager>

@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:refId="Package" DTS:ExecutableType="Microsoft.Package" DTS:ObjectName="Child">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:Executables>
+    <DTS:Executable DTS:refId="Package\CDC Load" DTS:ExecutableType="Microsoft.Pipeline" DTS:ObjectName="CDC Load">
+      <DTS:ObjectData><pipeline version="1"><components>
+        <component refId="a" componentClassID="Microsoft.ManagedComponentHost" name="CDC Src"><properties><property name="UserComponentTypeName">Attunity.SqlServer.CDCSrc.CdcSourceComponent, Attunity.SqlServer.CDCSrc, Version=4.0.0.0</property></properties></component>
+        <component refId="b" componentClassID="Microsoft.OLEDBDestination" name="Dest" />
+      </components></pipeline></DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>
