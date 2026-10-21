@@ -4,6 +4,24 @@ All notable changes to this repository. Dates are local (America/New_York).
 
 ## [Unreleased] — 2026-10-20
 
+### Added (2026-10-21) — sprint backlog export (assessment v2.3.0)
+- Every assessment run writes `sprint_backlog.csv` and `sprint_backlog.xlsx`. Each package gets one row
+  with `TargetPlatform` (ADF / SSIS VM / SSIS VM after remediation / Undetermined), `WorkType`,
+  `ComplexityScore` and `ComplexityBand` (S/M/L/XL/TBD), `BuildOrder` (children before parents),
+  `DependsOn` and `CalledBy`, `DecisionDrivers`, usage from run history, and blank `BusinessOwner`,
+  `Developer`, `Sprint`, `Status`, `Decision` and `Notes` columns. The workbook has Summary, Backlog,
+  per-platform and Legend sheets. It is written as Office Open XML with no module dependency.
+- `03_Test-AssessmentRouting.ps1` v1.3.0 checks the backlog. It confirms one row per package, the platform
+  each expected route maps to, that every parent's BuildOrder is higher than its children's, and that the
+  workbook's Backlog sheet has the same row count. The secret scan now reads the XML inside `.xlsx` files.
+- CI uploads the fixture run's sprint backlog as a sample artifact.
+
+### Verified (2026-10-21) — sprint backlog
+- Fixtures: 96/96 checks pass on PowerShell 7.4. A deliberately wrong platform mapping fails 4 checks.
+  openpyxl reads the workbook, all XML parts parse, and the frozen header and AutoFilter are present on every sheet.
+  An empty run writes a valid workbook.
+- Not yet verified: opening in desktop Excel, and Windows PowerShell 5.1. The code avoids PS 7-only syntax.
+
 ### Added (2026-10-21) — parity scenario packages and pipelines (G22–G30)
 - `01_New-SsisTestProject.ps1 -Suite ParityTests` builds the `ParityTests` project: P22–P30, runnable, with
   live column metadata. It copies `tests/parity/data` to `<LandingPath>\parity\in`; LandingPath defaults to

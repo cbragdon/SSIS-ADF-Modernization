@@ -38,6 +38,10 @@
     6. Enriches with run history from catalog.executions (run count, failures, last run, average duration)
        and optionally SQL Agent job steps (schedules, 32-bit /X86 execution - deprecated in SQL Server 2025).
     7. Writes timestamped CSVs plus a transcript log. Nothing is overwritten between runs.
+    8. Writes a sprint backlog (sprint_backlog.csv and sprint_backlog.xlsx) for developers and business units:
+       one row per package with its target platform, the work it implies, a complexity band, the order to
+       build it in (children before parents) and blank Owner / Sprint / Status columns. The workbook needs
+       neither Excel nor the ImportExcel module on the assessment host.
 
     ROUTES MAPPED TO THE DECISION DOCUMENT OPTIONS
     ----------------------------------------------
@@ -123,6 +127,9 @@
         agent_job_steps.csv     - SSIS Agent job steps (-IncludeAgentJobs)
         errors.csv              - every non-fatal failure (server, project, package, message)
         route_summary.csv       - package counts per environment and route
+        sprint_backlog.csv      - one planning row per package: TargetPlatform, WorkType, ComplexityBand, BuildOrder,
+                                  DecisionDrivers, usage, and blank BusinessOwner / Developer / Sprint / Status columns
+        sprint_backlog.xlsx     - the same rows as a workbook: Summary, Backlog, one sheet per platform, Legend
         transcript.log          - full PowerShell transcript of the run
 
 .EXAMPLE
@@ -140,7 +147,7 @@
     .\01_Invoke-SsisModernizationAssessment.ps1 -PackageFolder 'C:\Repos\ETL\SSIS' -TargetSsisVersion 2022
 
 .NOTES
-    Version : 2.2.0
+    Version : 2.3.0
     Purpose : Replaces 01_run_dma_assessment.ps1 (which queried non-existent catalog columns and could not
               determine task types). This script does not use Data Migration Assistant.
     Compat  : Windows PowerShell 5.1 and PowerShell 7.x. No SqlServer module dependency (uses .NET SqlClient).
@@ -244,6 +251,25 @@ $RouteLabel = @{
 }
 # Azure-SSIS IR (Option B) fit precedence. Higher wins.
 $IrSeverity = @{ 'Compatible' = 1; 'NeedsConfiguration' = 2; 'NeedsCustomSetup' = 3; 'Review' = 4 }
+
+# Sprint backlog (sprint_backlog.csv / .xlsx): the platform each route lands on and the work it implies.
+# Order = sort order of the platform sheets in the workbook.
+$RoutePlanning = [ordered]@{
+    'AdfNative-Low'    = @{ Platform = 'ADF'; Order = 1
+                            WorkType = 'Rewrite as an ADF pipeline: Copy, Script and Stored Procedure activities' }
+    'AdfNative-Medium' = @{ Platform = 'ADF'; Order = 1
+                            WorkType = 'Rewrite as an ADF pipeline: Mapping Data Flow, Self-hosted IR or orchestration rework' }
+    'KeepOnSsisVm'     = @{ Platform = 'SSIS VM'; Order = 2
+                            WorkType = 'Deploy to the SSIS VM unchanged and orchestrate from ADF' }
+    'Remediate2025'    = @{ Platform = 'SSIS VM after remediation'; Order = 3
+                            WorkType = 'Replace components removed in SQL Server 2025 (or pin the host to 2022, or rewrite in ADF), then deploy to the SSIS VM' }
+    'ReviewRequired'   = @{ Platform = 'Undetermined'; Order = 4
+                            WorkType = 'Make the package readable (remove EncryptAll, upgrade the format, resolve the external child), then re-assess' }
+}
+# ComplexityScore upper bounds per band; above L is XL. The score is a starting point for estimates, not an
+# estimate: (enabled tasks) + (data flow components) + 3 x (script tasks + script components) + event handlers
+# + error-row redirects + opaque SQL statements + 2 if transactions are required + 2 if checkpoints are on.
+$ComplexityBands = [ordered]@{ 'S' = 5; 'M' = 15; 'L' = 40 }
 
 <#
     RULE TABLE
@@ -1192,7 +1218,256 @@ function Invoke-FolderAssessment {
 }
 #endregion
 
-#region ============================== 7. EXECUTION ===============================================
+#region ============================== 7. SPRINT BACKLOG ==========================================
+
+function Get-ComplexityScore {
+    <# Size signal for estimation; the formula is documented with $ComplexityBands. #>
+    param([Parameter(Mandatory)]$Package)
+    $score = ([int]$Package.TaskCount - [int]$Package.DisabledTasks) + [int]$Package.DataFlowComponents +
+             3 * ([int]$Package.ScriptTasks + [int]$Package.ScriptComponents) + [int]$Package.EventHandlers +
+             [int]$Package.ErrorRowRedirects + [int]$Package.OpaqueSqlStatements
+    if ([int]$Package.TransactionsRequired -gt 0) { $score += 2 }
+    if ($Package.CheckpointsEnabled) { $score += 2 }
+    [Math]::Max(0, $score)
+}
+
+function New-SprintBacklog {
+    <#
+        One planning row per package, after child roll-up: target platform, work type, complexity, build order,
+        the rules that decided the route, usage, and blank columns for the team to fill in.
+        BuildOrder is 1 for a package that runs no child in its project, otherwise 1 + its deepest child, so
+        building in ascending BuildOrder delivers every child before the parent that executes it.
+    #>
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Packages)
+    $rows = New-Object System.Collections.Generic.List[object]
+    foreach ($grp in ($Packages | Group-Object { '{0}|{1}|{2}' -f $_.ServerInstance, $_.Folder, $_.Project })) {
+        $lookup = @{}; foreach ($p in $grp.Group) { $lookup[$p.Package] = $p }
+        $calledBy = @{}
+        foreach ($p in $grp.Group) {
+            foreach ($c in @($p.ChildPackages -split '; ' | Where-Object { $_ -and $lookup.ContainsKey($_) })) {
+                if (-not $calledBy.ContainsKey($c)) { $calledBy[$c] = New-Object System.Collections.Generic.List[string] }
+                $calledBy[$c].Add($p.Package)
+            }
+        }
+        # Depth resolver with cycle protection (visited set), memoised per project.
+        $order = @{}
+        $depth = $null
+        $depth = {
+            param($pkg, $visited)
+            if ($order.ContainsKey($pkg.Package)) { return $order[$pkg.Package] }
+            $d = 1
+            foreach ($c in @($pkg.ChildPackages -split '; ' | Where-Object { $_ })) {
+                if (-not $lookup.ContainsKey($c) -or $visited.Contains($c)) { continue }
+                [void]$visited.Add($c)
+                $d = [Math]::Max($d, 1 + (& $depth $lookup[$c] $visited))
+                [void]$visited.Remove($c)
+            }
+            $order[$pkg.Package] = $d
+            $d
+        }
+        foreach ($p in $grp.Group) {
+            $plan = $RoutePlanning[$p.EffectiveRoute]
+            $visited = New-Object System.Collections.Generic.HashSet[string]
+            [void]$visited.Add($p.Package)
+            $buildOrder = & $depth $p $visited
+
+            $score = Get-ComplexityScore -Package $p
+            $band = 'XL'
+            foreach ($b in $ComplexityBands.Keys) { if ($score -le $ComplexityBands[$b]) { $band = $b; break } }
+            if ($p.ParseStatus -ne 'Parsed') { $band = 'TBD' }      # nothing was read, so there is nothing to size
+
+            # Decision drivers: only the rules that set the package's own route, plus any harder child it runs.
+            $all = @($p.RouteReasons -split '; ' | Where-Object { $_ })
+            $drivers = @($all | Where-Object { $_ -like "$($p.PackageRoute): *" } | ForEach-Object { $_.Substring($p.PackageRoute.Length + 2) })
+            $drivers += @($all | Where-Object { $_ -like 'FutureRisk: *' })
+            if ($drivers.Count -eq 0) { $drivers = $all }
+            if ($p.RolledUpFrom) { $drivers += "Runs child package(s) with a harder route: $($p.RolledUpFrom)" }
+
+            $usage = if ($p.SourceType -ne 'SSISDB') { 'No run history (not an SSISDB package)' }
+                     elseif ([int]$p.Executions -eq 0) { "Not run in the last $HistoryDays days - confirm it is still needed" }
+                     elseif ([int]$p.FailedExecutions -gt 0) { '{0} runs, {1} failed, in the last {2} days' -f $p.Executions, $p.FailedExecutions, $HistoryDays }
+                     else { '{0} runs in the last {1} days' -f $p.Executions, $HistoryDays }
+
+            $rows.Add([PSCustomObject]@{
+                Environment = $p.Environment; ServerInstance = $p.ServerInstance; Folder = $p.Folder; Project = $p.Project
+                Package = $p.Package; TargetPlatform = $plan.Platform; Route = $p.EffectiveRoute; WorkType = $plan.WorkType
+                ComplexityBand = $band; ComplexityScore = $score; BuildOrder = $buildOrder
+                DependsOn = $p.ChildPackages
+                CalledBy = $(if ($calledBy.ContainsKey($p.Package)) { (@($calledBy[$p.Package]) | Sort-Object -Unique) -join '; ' } else { '' })
+                DecisionDrivers = ($drivers -join '; '); AzureSsisIrFit = $p.AzureSsisIrFit; Removed2025 = $p.Removed2025
+                Usage = $usage; LastExecutionStart = $p.LastExecutionStart; AvgDurationMin = $p.AvgDurationMin; AgentJobs = $p.AgentJobs
+                BusinessOwner = ''; Developer = ''; Sprint = ''; Status = ''; Decision = ''; Notes = ''
+                PlatformOrder = $plan.Order
+            })
+        }
+    }
+    $rows | Sort-Object Environment, PlatformOrder, Project, BuildOrder, Package | Select-Object * -ExcludeProperty PlatformOrder
+}
+
+function Get-XlsxColumnName {
+    <# 1 -> A, 27 -> AA. #>
+    param([Parameter(Mandatory)][int]$Index)
+    $name = ''
+    while ($Index -gt 0) { $m = ($Index - 1) % 26; $name = [string][char](65 + $m) + $name; $Index = [int][Math]::Floor(($Index - 1) / 26) }
+    $name
+}
+
+function Write-XlsxWorkbook {
+    <#
+        Writes a minimal Office Open XML workbook with no module dependency (ImportExcel and Excel are not needed
+        on the assessment host). Each sheet: bold header row, frozen header, AutoFilter, column widths sized to
+        content. Strings are inline strings, so a value starting with '=' is text, never a formula.
+        Sheets: ordered list of @{ Name = '...'; Columns = @('...'); Rows = @(objects) }.
+    #>
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][object[]]$Sheets)
+    $main = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
+    $rel  = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+    $esc = {
+        param($v)
+        if ($null -eq $v -or $v -is [DBNull]) { return '' }
+        $s = if ($v -is [datetime]) { $v.ToString('yyyy-MM-dd HH:mm:ss') } else { [string]$v }
+        [Security.SecurityElement]::Escape([regex]::Replace($s, '[\x00-\x08\x0B\x0C\x0E-\x1F]', ''))
+    }
+    $parts = [ordered]@{}
+    $ct = New-Object System.Text.StringBuilder
+    [void]$ct.Append('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">')
+    [void]$ct.Append('<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>')
+    [void]$ct.Append('<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>')
+    [void]$ct.Append('<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>')
+    $wb = New-Object System.Text.StringBuilder
+    [void]$wb.Append("<?xml version=`"1.0`" encoding=`"UTF-8`" standalone=`"yes`"?><workbook xmlns=`"$main`" xmlns:r=`"$rel`"><sheets>")
+    $wbRels = New-Object System.Text.StringBuilder
+    [void]$wbRels.Append('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">')
+    $names = New-Object System.Text.StringBuilder
+
+    for ($i = 0; $i -lt $Sheets.Count; $i++) {
+        $sheet = $Sheets[$i]; $n = $i + 1
+        # Sheet names: max 31 characters, none of : \ / ? * [ ]
+        $sheetName = ([regex]::Replace([string]$sheet.Name, '[:\\/\?\*\[\]]', '-'))
+        if ($sheetName.Length -gt 31) { $sheetName = $sheetName.Substring(0, 31) }
+        $cols = @($sheet.Columns); $rows = @($sheet.Rows)
+        $lastCol = Get-XlsxColumnName -Index $cols.Count
+        $ref = 'A1:{0}{1}' -f $lastCol, ($rows.Count + 1)
+
+        $widths = @($cols | ForEach-Object { [Math]::Max(10, $_.Length + 4) })
+        $sd = New-Object System.Text.StringBuilder
+        [void]$sd.Append('<row r="1">')
+        for ($c = 0; $c -lt $cols.Count; $c++) {
+            [void]$sd.Append(('<c r="{0}1" t="inlineStr" s="1"><is><t>{1}</t></is></c>' -f (Get-XlsxColumnName -Index ($c + 1)), (& $esc $cols[$c])))
+        }
+        [void]$sd.Append('</row>')
+        for ($r = 0; $r -lt $rows.Count; $r++) {
+            $rn = $r + 2
+            [void]$sd.Append("<row r=`"$rn`">")
+            for ($c = 0; $c -lt $cols.Count; $c++) {
+                $v = $rows[$r].($cols[$c]); $cell = '{0}{1}' -f (Get-XlsxColumnName -Index ($c + 1)), $rn
+                if ($null -eq $v -or $v -is [DBNull] -or [string]$v -eq '') { continue }
+                if ($v -is [int] -or $v -is [long] -or $v -is [double] -or $v -is [decimal]) {
+                    [void]$sd.Append(('<c r="{0}"><v>{1}</v></c>' -f $cell, ([IFormattable]$v).ToString($null, [Globalization.CultureInfo]::InvariantCulture)))
+                    $len = ([string]$v).Length
+                }
+                else {
+                    $t = & $esc $v
+                    [void]$sd.Append(('<c r="{0}" t="inlineStr"><is><t xml:space="preserve">{1}</t></is></c>' -f $cell, $t))
+                    $len = ([string]$v).Length
+                }
+                if ($len + 2 -gt $widths[$c]) { $widths[$c] = [Math]::Min(80, $len + 2) }
+            }
+            [void]$sd.Append('</row>')
+        }
+        $colXml = (0..($cols.Count - 1) | ForEach-Object { '<col min="{0}" max="{0}" width="{1}" customWidth="1"/>' -f ($_ + 1), $widths[$_] }) -join ''
+        $parts["xl/worksheets/sheet$n.xml"] = ("<?xml version=`"1.0`" encoding=`"UTF-8`" standalone=`"yes`"?><worksheet xmlns=`"$main`">" +
+            '<sheetViews><sheetView workbookViewId="0"' + $(if ($n -eq 1) { ' tabSelected="1"' } else { '' }) + '><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' +
+            "<cols>$colXml</cols><sheetData>$($sd.ToString())</sheetData><autoFilter ref=`"$ref`"/></worksheet>")
+
+        [void]$ct.Append("<Override PartName=`"/xl/worksheets/sheet$n.xml`" ContentType=`"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml`"/>")
+        [void]$wb.Append(('<sheet name="{0}" sheetId="{1}" r:id="rId{1}"/>' -f (& $esc $sheetName), $n))
+        [void]$wbRels.Append("<Relationship Id=`"rId$n`" Type=`"$rel/worksheet`" Target=`"worksheets/sheet$n.xml`"/>")
+        $quoted = "'" + $sheetName.Replace("'", "''") + "'"
+        [void]$names.Append(('<definedName name="_xlnm._FilterDatabase" localSheetId="{0}" hidden="1">{1}!$A$1:${2}${3}</definedName>' -f $i, (& $esc $quoted), $lastCol, ($rows.Count + 1)))
+    }
+    [void]$ct.Append('</Types>')
+    [void]$wb.Append("</sheets><definedNames>$($names.ToString())</definedNames></workbook>")
+    [void]$wbRels.Append(('<Relationship Id="rId{0}" Type="{1}/styles" Target="styles.xml"/></Relationships>' -f ($Sheets.Count + 1), $rel))
+
+    $parts['[Content_Types].xml'] = $ct.ToString()
+    $parts['_rels/.rels'] = "<?xml version=`"1.0`" encoding=`"UTF-8`" standalone=`"yes`"?><Relationships xmlns=`"http://schemas.openxmlformats.org/package/2006/relationships`"><Relationship Id=`"rId1`" Type=`"$rel/officeDocument`" Target=`"xl/workbook.xml`"/></Relationships>"
+    $parts['xl/workbook.xml'] = $wb.ToString()
+    $parts['xl/_rels/workbook.xml.rels'] = $wbRels.ToString()
+    $parts['xl/styles.xml'] = ("<?xml version=`"1.0`" encoding=`"UTF-8`" standalone=`"yes`"?><styleSheet xmlns=`"$main`">" +
+        '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>' +
+        '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>' +
+        '<fill><patternFill patternType="solid"><fgColor rgb="FFD9E1F2"/><bgColor indexed="64"/></patternFill></fill></fills>' +
+        '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
+        '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+        '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs>' +
+        '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>')
+
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    $fs = [IO.File]::Open($Path, [IO.FileMode]::Create)
+    try {
+        $zip = New-Object System.IO.Compression.ZipArchive($fs, [IO.Compression.ZipArchiveMode]::Create)
+        try {
+            foreach ($k in $parts.Keys) {
+                $w = New-Object System.IO.StreamWriter($zip.CreateEntry($k).Open(), $utf8)
+                try { $w.Write($parts[$k]) } finally { $w.Dispose() }
+            }
+        }
+        finally { $zip.Dispose() }
+    }
+    finally { $fs.Dispose() }
+}
+
+function Export-SprintBacklog {
+    <# Writes sprint_backlog.csv and sprint_backlog.xlsx (Summary, Backlog, one sheet per platform, Legend). #>
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Backlog, [Parameter(Mandatory)][string]$Folder)
+    $columns = @('Environment', 'ServerInstance', 'Folder', 'Project', 'Package', 'TargetPlatform', 'Route', 'WorkType',
+                 'ComplexityBand', 'ComplexityScore', 'BuildOrder', 'DependsOn', 'CalledBy', 'DecisionDrivers', 'AzureSsisIrFit',
+                 'Removed2025', 'Usage', 'LastExecutionStart', 'AvgDurationMin', 'AgentJobs',
+                 'BusinessOwner', 'Developer', 'Sprint', 'Status', 'Decision', 'Notes')
+    $Backlog | Select-Object $columns | Export-Csv -Path (Join-Path $Folder 'sprint_backlog.csv') -NoTypeInformation -Encoding UTF8
+
+    $platforms = @($RoutePlanning.Values | Sort-Object { $_.Order } | ForEach-Object { $_.Platform } | Select-Object -Unique)
+    $bandNames = @($ComplexityBands.Keys) + @('XL', 'TBD')
+    $summary = foreach ($g in ($Backlog | Group-Object Environment, TargetPlatform)) {
+        $row = [ordered]@{ Environment = $g.Group[0].Environment; TargetPlatform = $g.Group[0].TargetPlatform; Packages = $g.Count }
+        foreach ($b in $bandNames) { $row[$b] = @($g.Group | Where-Object ComplexityBand -eq $b).Count }
+        $row['Order'] = [array]::IndexOf($platforms, $g.Group[0].TargetPlatform)
+        [PSCustomObject]$row
+    }
+    $summary = @($summary | Sort-Object Environment, Order)
+
+    $legend = New-Object System.Collections.Generic.List[object]
+    foreach ($k in $RoutePlanning.Keys) {
+        $legend.Add([PSCustomObject]@{ Item = 'Route'; Value = $k; TargetPlatform = $RoutePlanning[$k].Platform; Meaning = $RouteLabel[$k]; WorkType = $RoutePlanning[$k].WorkType })
+    }
+    $lower = 0
+    foreach ($b in $ComplexityBands.Keys) {
+        $legend.Add([PSCustomObject]@{ Item = 'ComplexityBand'; Value = $b; TargetPlatform = ''; Meaning = ('ComplexityScore {0} to {1}' -f $lower, $ComplexityBands[$b]); WorkType = '' })
+        $lower = $ComplexityBands[$b] + 1
+    }
+    $legend.Add([PSCustomObject]@{ Item = 'ComplexityBand'; Value = 'XL'; TargetPlatform = ''; Meaning = ('ComplexityScore {0} or more' -f $lower); WorkType = '' })
+    $legend.Add([PSCustomObject]@{ Item = 'ComplexityBand'; Value = 'TBD'; TargetPlatform = ''; Meaning = 'Package could not be read, so it was not sized'; WorkType = '' })
+    $legend.Add([PSCustomObject]@{ Item = 'ComplexityScore'; Value = ''; TargetPlatform = ''; WorkType = ''
+        Meaning = 'Enabled tasks + data flow components + 3 x (script tasks + script components) + event handlers + error-row redirects + opaque SQL statements + 2 if transactions required + 2 if checkpoints on. A sizing signal, not an estimate.' })
+    $legend.Add([PSCustomObject]@{ Item = 'BuildOrder'; Value = ''; TargetPlatform = ''; WorkType = ''
+        Meaning = '1 = runs no child package in its project. A parent is always higher than every child it executes: build in ascending order.' })
+    $legend.Add([PSCustomObject]@{ Item = 'AzureSsisIrFit'; Value = ''; TargetPlatform = ''; WorkType = ''
+        Meaning = 'Option B (Azure-SSIS IR) suitability, reported separately from the route.' })
+
+    $sheets = New-Object System.Collections.Generic.List[object]
+    $sheets.Add(@{ Name = 'Summary'; Columns = @('Environment', 'TargetPlatform', 'Packages') + $bandNames; Rows = $summary })
+    $sheets.Add(@{ Name = 'Backlog'; Columns = $columns; Rows = @($Backlog) })
+    foreach ($pf in $platforms) {
+        $rows = @($Backlog | Where-Object TargetPlatform -eq $pf)
+        if ($rows.Count -gt 0) { $sheets.Add(@{ Name = $pf; Columns = $columns; Rows = $rows }) }
+    }
+    $sheets.Add(@{ Name = 'Legend'; Columns = @('Item', 'Value', 'TargetPlatform', 'Meaning', 'WorkType'); Rows = $legend.ToArray() })
+    Write-XlsxWorkbook -Path (Join-Path $Folder 'sprint_backlog.xlsx') -Sheets $sheets.ToArray()
+}
+#endregion
+
+#region ============================== 8. EXECUTION ===============================================
 
 try {
     # Build the server work list (explicit servers + server list file).
@@ -1264,6 +1539,7 @@ try {
                            RouteLabel = $RouteLabel[$_.Group[0].EffectiveRoute]; Packages = $_.Count }
     } | Sort-Object Environment, @{ Expression = { $RouteSeverity[$_.EffectiveRoute] }; Descending = $true }
     $summary | Export-Csv -Path (Join-Path $RunFolder 'route_summary.csv') @csv
+    Export-SprintBacklog -Backlog @(New-SprintBacklog -Packages $Packages.ToArray()) -Folder $RunFolder
 
     Write-Log -Level OK -Message ("Packages assessed: {0} | Evidence items: {1} | Errors: {2}" -f $Packages.Count, $Evidence.Count, $Errors.Count)
     # -Width keeps the table readable in headless runs (SQL Agent, scheduled tasks) where console width is undefined.

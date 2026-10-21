@@ -98,6 +98,46 @@ Full procedure, prerequisites and troubleshooting: [docs/03_runbook-test-package
 `EffectiveRoute` rolls child packages up to their parents (Execute Package Task), so a parent is never
 easier than the children it runs. `AzureSsisIrFit` reports Option B suitability separately.
 
+## Sprint backlog (planning workbook)
+
+Every assessment run also writes `sprint_backlog.csv` and `sprint_backlog.xlsx` to its run folder. They
+list each package with the platform it is planned for and the work that implies, so developers can plan
+sprints and business units can see where each of their packages is going. The workbook is written
+directly as Office Open XML, so neither Excel nor the ImportExcel module is needed on the assessment host.
+
+| Route | `TargetPlatform` | `WorkType` |
+| --- | --- | --- |
+| `AdfNative-Low` | ADF | Rewrite as an ADF pipeline: Copy, Script and Stored Procedure activities |
+| `AdfNative-Medium` | ADF | Rewrite as an ADF pipeline: Mapping Data Flow, Self-hosted IR or orchestration rework |
+| `KeepOnSsisVm` | SSIS VM | Deploy to the SSIS VM unchanged and orchestrate from ADF |
+| `Remediate2025` | SSIS VM after remediation | Replace components removed in SQL Server 2025 (or pin the host to 2022, or rewrite in ADF), then deploy |
+| `ReviewRequired` | Undetermined | Make the package readable, then re-assess |
+
+Columns:
+
+* **Identity:** `Environment`, `ServerInstance`, `Folder`, `Project`, `Package`.
+* **Plan:** `TargetPlatform`, `Route` (the `EffectiveRoute`), `WorkType`.
+* **Sizing:** `ComplexityScore` and `ComplexityBand`. `ComplexityScore` = enabled tasks + data flow
+  components + 3 × (script tasks + script components) + event handlers + error-row redirects + opaque
+  SQL statements, + 2 if transactions are required and + 2 if checkpoints are on. The bands are S ≤ 5,
+  M ≤ 15, L ≤ 40, and XL above 40. A package that could not be read is `TBD`. The score is something to
+  estimate from, not an estimate. Calibrate `$ComplexityBands` after the first few sprints.
+* **Order:** `BuildOrder` is 1 for a package that runs no child package in its project. Otherwise it is
+  1 + its deepest child. `DependsOn` lists the children it runs, and `CalledBy` lists the parents that run it.
+  Building in ascending `BuildOrder` delivers every child before its parent.
+* **Why:** `DecisionDrivers` lists only the rules that set the package's own route, plus any harder child it
+  inherits from. The full list is in `package_assessment.csv` and `evidence_items.csv`.
+* **Context:** `AzureSsisIrFit`, `Removed2025`, `Usage` (for example, "not run in the last 90 days, confirm
+  it is still needed"), `LastExecutionStart`, `AvgDurationMin`, `AgentJobs`.
+* **For the team to fill in:** `BusinessOwner`, `Developer`, `Sprint`, `Status`, `Decision`, `Notes`.
+
+Workbook sheets: **Summary** (package counts per environment and platform, by complexity band),
+**Backlog** (all rows), one sheet per platform, and **Legend** (routes, bands, and column meanings).
+Each sheet has a frozen header and an AutoFilter.
+
+Each run writes a new file, so copy the workbook somewhere shared before the team edits it. A re-run
+does not carry the planning columns forward.
+
 ## Engineering conventions
 
 * **Read-only by default.** The assessment never changes a server. The deploy script changes SSISDB
@@ -113,7 +153,7 @@ easier than the children it runs. `AzureSsisIrFit` reports Option B suitability 
 
 | Component | State |
 | --- | --- |
-| `01_Invoke-SsisModernizationAssessment.ps1` | Runs. Offline fixtures pass (67/67 checks, including route-reason checks). Routes for the 14 live-built AssessmentTests packages unchanged by v2.2.0. SSISDB/msdb/Agent queries not yet run against a live server. |
+| `01_Invoke-SsisModernizationAssessment.ps1` | v2.3.0. Runs. Offline fixtures pass (96/96 checks, including route-reason and sprint-backlog checks). Routes are unchanged by v2.3.0. SSISDB/msdb/Agent queries not yet run against a live server. The sprint workbook was validated with openpyxl, not yet opened in desktop Excel. |
 | `03_Test-AssessmentRouting.ps1` | Runs. Fixtures mode verified, including a deliberate failing case. |
 | `01_New-SsisTestProject.ps1` | v1.1.0. T01–T15 built and deployed on SQL Server 2025 (14 of 15; T15 needs the removed CDC/Oracle components). **T16–T27 are syntax-checked only, not yet compiled or run on SSIS.** Property names are set defensively and logged as warnings if they differ. |
 | `02_Deploy-SsisTestProject.ps1` | Guardrail verified. **Not yet run against SSISDB.** Use `-WhatIf` first. |
