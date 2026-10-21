@@ -1,0 +1,33 @@
+{
+    "name": "ds_Parity_SqlTable",
+    "properties": {
+        "description": "Any table in SsisAssessmentTest.",
+        "linkedServiceName": {
+            "referenceName": "ls_SsisAssessmentTest",
+            "type": "LinkedServiceReference"
+        },
+        "folder": {
+            "name": "parity"
+        },
+        "parameters": {
+            "Schema": {
+                "type": "string"
+            },
+            "Table": {
+                "type": "string"
+            }
+        },
+        "type": "SqlServerTable",
+        "typeProperties": {
+            "schema": {
+                "value": "@dataset().Schema",
+                "type": "Expression"
+            },
+            "table": {
+                "value": "@dataset().Table",
+                "type": "Expression"
+            }
+        },
+        "schema": []
+    }
+}

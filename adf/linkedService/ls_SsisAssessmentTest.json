@@ -1,0 +1,23 @@
+{
+    "name": "ls_SsisAssessmentTest",
+    "properties": {
+        "description": "SsisAssessmentTest on the Dev SQL Server, reached through the self-hosted IR. Windows authentication; the password is a Key Vault secret. Replace <DevSqlServer> and <Domain>\\<ServiceAccount>.",
+        "type": "SqlServer",
+        "typeProperties": {
+            "connectionString": "Integrated Security=True;Data Source=<DevSqlServer>;Initial Catalog=SsisAssessmentTest;Encrypt=True;Trust Server Certificate=True",
+            "userName": "<Domain>\\<ServiceAccount>",
+            "password": {
+                "type": "AzureKeyVaultSecret",
+                "store": {
+                    "referenceName": "ls_KeyVault",
+                    "type": "LinkedServiceReference"
+                },
+                "secretName": "parity-sql-password"
+            }
+        },
+        "connectVia": {
+            "referenceName": "ir_SelfHosted",
+            "type": "IntegrationRuntimeReference"
+        }
+    }
+}

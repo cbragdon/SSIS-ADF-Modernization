@@ -1,0 +1,120 @@
+{
+    "name": "pl_parity_G28_SystemVars",
+    "properties": {
+        "description": "G28 rewrite of P28_SystemVars. The folder and stamp values derive from RunDate exactly as the SSIS expressions do; the factory name, trigger name, trigger time and run id stand in for the SSIS machine, user, start time and execution GUID (recorded, not compared).",
+        "activities": [
+            {
+                "name": "Record system variables",
+                "description": "Parameterised insert.",
+                "type": "Script",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.00:30:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "linkedServiceName": {
+                    "referenceName": "ls_SsisAssessmentTest",
+                    "type": "LinkedServiceReference"
+                },
+                "typeProperties": {
+                    "scripts": [
+                        {
+                            "type": "NonQuery",
+                            "text": "INSERT out_adf.G28_SystemVars (RunDate, ArchiveFolder, MonthFolder, FileStamp, MachineName, UserName, StartTime, ExecutionGuid)\nVALUES (@RunDate, @ArchiveFolder, @MonthFolder, @FileStamp, @MachineName, @UserName, @StartTime, @ExecutionGuid);",
+                            "parameters": [
+                                {
+                                    "name": "RunDate",
+                                    "type": "String",
+                                    "value": {
+                                        "value": "@pipeline().parameters.RunDate",
+                                        "type": "Expression"
+                                    },
+                                    "direction": "Input"
+                                },
+                                {
+                                    "name": "ArchiveFolder",
+                                    "type": "String",
+                                    "value": {
+                                        "value": "@concat('archive\\', formatDateTime(pipeline().parameters.RunDate, 'yyyy'), '\\', formatDateTime(pipeline().parameters.RunDate, 'MM'), '\\')",
+                                        "type": "Expression"
+                                    },
+                                    "direction": "Input"
+                                },
+                                {
+                                    "name": "MonthFolder",
+                                    "type": "String",
+                                    "value": {
+                                        "value": "@formatDateTime(pipeline().parameters.RunDate, 'yyyy-MM')",
+                                        "type": "Expression"
+                                    },
+                                    "direction": "Input"
+                                },
+                                {
+                                    "name": "FileStamp",
+                                    "type": "String",
+                                    "value": {
+                                        "value": "@formatDateTime(pipeline().parameters.RunDate, 'yyyyMMdd')",
+                                        "type": "Expression"
+                                    },
+                                    "direction": "Input"
+                                },
+                                {
+                                    "name": "MachineName",
+                                    "type": "String",
+                                    "value": {
+                                        "value": "@pipeline().DataFactory",
+                                        "type": "Expression"
+                                    },
+                                    "direction": "Input"
+                                },
+                                {
+                                    "name": "UserName",
+                                    "type": "String",
+                                    "value": {
+                                        "value": "@pipeline().TriggeredByName",
+                                        "type": "Expression"
+                                    },
+                                    "direction": "Input"
+                                },
+                                {
+                                    "name": "StartTime",
+                                    "type": "String",
+                                    "value": {
+                                        "value": "@string(pipeline().TriggerTime)",
+                                        "type": "Expression"
+                                    },
+                                    "direction": "Input"
+                                },
+                                {
+                                    "name": "ExecutionGuid",
+                                    "type": "String",
+                                    "value": {
+                                        "value": "@pipeline().RunId",
+                                        "type": "Expression"
+                                    },
+                                    "direction": "Input"
+                                }
+                            ]
+                        }
+                    ],
+                    "scriptBlockExecutionTimeout": "00:10:00"
+                }
+            }
+        ],
+        "folder": {
+            "name": "parity"
+        },
+        "annotations": [
+            "parity"
+        ],
+        "parameters": {
+            "RunDate": {
+                "type": "string",
+                "defaultValue": "2026-01-31"
+            }
+        }
+    }
+}

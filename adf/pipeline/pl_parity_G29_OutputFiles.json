@@ -1,0 +1,332 @@
+{
+    "name": "pl_parity_G29_OutputFiles",
+    "properties": {
+        "description": "G29 rewrite of P29_OutputFiles: one file per Region and one file per 10 rows, named <kind>_<key>_<yyyyMMdd_HHmmss>.csv like the SSIS package. The Copy sink's maxRowsPerFile split is not used because it names files <prefix>_00000.csv.",
+        "activities": [
+            {
+                "name": "Output folder exists",
+                "type": "GetMetadata",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.00:30:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "typeProperties": {
+                    "dataset": {
+                        "referenceName": "ds_Parity_G29_OutputFolder",
+                        "type": "DatasetReference"
+                    },
+                    "fieldList": [
+                        "exists"
+                    ],
+                    "storeSettings": {
+                        "type": "FileServerReadSettings",
+                        "recursive": false
+                    },
+                    "formatSettings": {
+                        "type": "BinaryReadSettings"
+                    }
+                }
+            },
+            {
+                "name": "Empty output folder",
+                "type": "IfCondition",
+                "dependsOn": [
+                    {
+                        "activity": "Output folder exists",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "typeProperties": {
+                    "expression": {
+                        "value": "@activity('Output folder exists').output.exists",
+                        "type": "Expression"
+                    },
+                    "ifTrueActivities": [
+                        {
+                            "name": "Delete old files",
+                            "type": "Delete",
+                            "dependsOn": [],
+                            "policy": {
+                                "timeout": "0.00:30:00",
+                                "retry": 0,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "typeProperties": {
+                                "dataset": {
+                                    "referenceName": "ds_Parity_G29_OutputFolder",
+                                    "type": "DatasetReference"
+                                },
+                                "enableLogging": false,
+                                "storeSettings": {
+                                    "type": "FileServerReadSettings",
+                                    "recursive": false,
+                                    "wildcardFileName": "*"
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "name": "Set stamp",
+                "type": "SetVariable",
+                "dependsOn": [
+                    {
+                        "activity": "Empty output folder",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "typeProperties": {
+                    "variableName": "Stamp",
+                    "value": {
+                        "value": "@formatDateTime(utcNow(), 'yyyyMMdd_HHmmss')",
+                        "type": "Expression"
+                    }
+                }
+            },
+            {
+                "name": "Get regions",
+                "type": "Lookup",
+                "dependsOn": [
+                    {
+                        "activity": "Set stamp",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.00:30:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "typeProperties": {
+                    "source": {
+                        "type": "SqlServerSource",
+                        "sqlReaderQuery": "SELECT DISTINCT Region FROM pty.G29_Input ORDER BY Region;"
+                    },
+                    "dataset": {
+                        "referenceName": "ds_Parity_SqlTable",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "Schema": "pty",
+                            "Table": "G29_Input"
+                        }
+                    },
+                    "firstRowOnly": false
+                }
+            },
+            {
+                "name": "Each region",
+                "type": "ForEach",
+                "dependsOn": [
+                    {
+                        "activity": "Get regions",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "typeProperties": {
+                    "items": {
+                        "value": "@activity('Get regions').output.value",
+                        "type": "Expression"
+                    },
+                    "isSequential": true,
+                    "activities": [
+                        {
+                            "name": "Write region file",
+                            "type": "Copy",
+                            "dependsOn": [],
+                            "policy": {
+                                "timeout": "0.00:30:00",
+                                "retry": 0,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "typeProperties": {
+                                "source": {
+                                    "type": "SqlServerSource",
+                                    "sqlReaderQuery": {
+                                        "value": "SELECT RowId, Region, Amount FROM pty.G29_Input WHERE Region = '@{item().Region}' ORDER BY RowId;",
+                                        "type": "Expression"
+                                    },
+                                    "queryTimeout": "00:10:00"
+                                },
+                                "sink": {
+                                    "type": "DelimitedTextSink",
+                                    "storeSettings": {
+                                        "type": "FileServerWriteSettings"
+                                    },
+                                    "formatSettings": {
+                                        "type": "DelimitedTextWriteSettings",
+                                        "quoteAllText": false,
+                                        "fileExtension": ".csv"
+                                    }
+                                },
+                                "enableStaging": false
+                            },
+                            "inputs": [
+                                {
+                                    "referenceName": "ds_Parity_SqlTable",
+                                    "type": "DatasetReference",
+                                    "parameters": {
+                                        "Schema": "pty",
+                                        "Table": "G29_Input"
+                                    }
+                                }
+                            ],
+                            "outputs": [
+                                {
+                                    "referenceName": "ds_Parity_G29_OutputCsv",
+                                    "type": "DatasetReference",
+                                    "parameters": {
+                                        "FileName": {
+                                            "value": "@concat('region_', item().Region, '_', variables('Stamp'), '.csv')",
+                                            "type": "Expression"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                }
+            },
+            {
+                "name": "Get parts",
+                "type": "Lookup",
+                "dependsOn": [
+                    {
+                        "activity": "Each region",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.00:30:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "typeProperties": {
+                    "source": {
+                        "type": "SqlServerSource",
+                        "sqlReaderQuery": "SELECT DISTINCT (ROW_NUMBER() OVER (ORDER BY RowId) - 1) / 10 + 1 AS Part FROM pty.G29_Input ORDER BY Part;"
+                    },
+                    "dataset": {
+                        "referenceName": "ds_Parity_SqlTable",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "Schema": "pty",
+                            "Table": "G29_Input"
+                        }
+                    },
+                    "firstRowOnly": false
+                }
+            },
+            {
+                "name": "Each part",
+                "type": "ForEach",
+                "dependsOn": [
+                    {
+                        "activity": "Get parts",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "typeProperties": {
+                    "items": {
+                        "value": "@activity('Get parts').output.value",
+                        "type": "Expression"
+                    },
+                    "isSequential": true,
+                    "activities": [
+                        {
+                            "name": "Write part file",
+                            "type": "Copy",
+                            "dependsOn": [],
+                            "policy": {
+                                "timeout": "0.00:30:00",
+                                "retry": 0,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "typeProperties": {
+                                "source": {
+                                    "type": "SqlServerSource",
+                                    "sqlReaderQuery": {
+                                        "value": "SELECT RowId, Region, Amount FROM (SELECT RowId, Region, Amount, (ROW_NUMBER() OVER (ORDER BY RowId) - 1) / 10 + 1 AS Part FROM pty.G29_Input) AS x WHERE Part = @{item().Part} ORDER BY RowId;",
+                                        "type": "Expression"
+                                    },
+                                    "queryTimeout": "00:10:00"
+                                },
+                                "sink": {
+                                    "type": "DelimitedTextSink",
+                                    "storeSettings": {
+                                        "type": "FileServerWriteSettings"
+                                    },
+                                    "formatSettings": {
+                                        "type": "DelimitedTextWriteSettings",
+                                        "quoteAllText": false,
+                                        "fileExtension": ".csv"
+                                    }
+                                },
+                                "enableStaging": false
+                            },
+                            "inputs": [
+                                {
+                                    "referenceName": "ds_Parity_SqlTable",
+                                    "type": "DatasetReference",
+                                    "parameters": {
+                                        "Schema": "pty",
+                                        "Table": "G29_Input"
+                                    }
+                                }
+                            ],
+                            "outputs": [
+                                {
+                                    "referenceName": "ds_Parity_G29_OutputCsv",
+                                    "type": "DatasetReference",
+                                    "parameters": {
+                                        "FileName": {
+                                            "value": "@concat('part_', string(item().Part), '_', variables('Stamp'), '.csv')",
+                                            "type": "Expression"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        ],
+        "folder": {
+            "name": "parity"
+        },
+        "annotations": [
+            "parity"
+        ],
+        "variables": {
+            "Stamp": {
+                "type": "String"
+            }
+        }
+    }
+}

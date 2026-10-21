@@ -1,0 +1,23 @@
+{
+    "name": "ls_ParityLanding",
+    "properties": {
+        "description": "Landing folder shared with the SSIS packages (the ParityTests LandingPath project parameter). Replace <LandingPath> with the same UNC path, for example \\\\<FileServer>\\ssis_landing.",
+        "type": "FileServer",
+        "typeProperties": {
+            "host": "<LandingPath>",
+            "userId": "<Domain>\\<ServiceAccount>",
+            "password": {
+                "type": "AzureKeyVaultSecret",
+                "store": {
+                    "referenceName": "ls_KeyVault",
+                    "type": "LinkedServiceReference"
+                },
+                "secretName": "parity-landing-password"
+            }
+        },
+        "connectVia": {
+            "referenceName": "ir_SelfHosted",
+            "type": "IntegrationRuntimeReference"
+        }
+    }
+}

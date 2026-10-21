@@ -1,0 +1,10 @@
+{
+    "name": "ls_KeyVault",
+    "properties": {
+        "description": "Key Vault holding the parity test secrets. Replace <KeyVaultName>.",
+        "type": "AzureKeyVault",
+        "typeProperties": {
+            "baseUrl": "https://<KeyVaultName>.vault.azure.net/"
+        }
+    }
+}

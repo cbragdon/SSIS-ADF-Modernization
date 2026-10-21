@@ -1,0 +1,59 @@
+{
+    "name": "pl_parity_G22_Lookup",
+    "properties": {
+        "description": "G22 rewrite of P22_LookupSemantics. A plain join under the CI collation would match 'p-100' and 'P-100 ' and return both P-200 rows; this query reproduces the SSIS full-cache Lookup instead.",
+        "activities": [
+            {
+                "name": "Lookup ProductCode",
+                "description": "Byte-exact lookup, first duplicate wins, NULL matches a NULL reference key, as the SSIS full-cache Lookup did.",
+                "type": "Copy",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.00:30:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "typeProperties": {
+                    "source": {
+                        "type": "SqlServerSource",
+                        "sqlReaderQuery": "WITH ref AS (\n    -- SSIS full cache keeps the first row of a duplicate key (its reference query is ORDER BY RefId).\n    SELECT ProductCode, Category,\n           ROW_NUMBER() OVER (PARTITION BY CAST(ProductCode AS varbinary(20)) ORDER BY RefId) AS rn\n      FROM pty.G22_Reference\n)\nSELECT i.InputId, i.ProductCode, r.Category,\n       CAST(CASE WHEN r.rn IS NULL THEN 'NoMatch' ELSE 'Match' END AS varchar(10)) AS MatchStatus\n  FROM pty.G22_Input AS i\n  LEFT JOIN ref AS r\n    ON r.rn = 1\n   -- The cache compares bytes: case and trailing spaces matter, and NULL matches a NULL reference key.\n   AND (CAST(i.ProductCode AS varbinary(20)) = CAST(r.ProductCode AS varbinary(20))\n        OR (i.ProductCode IS NULL AND r.ProductCode IS NULL));",
+                        "queryTimeout": "00:10:00"
+                    },
+                    "sink": {
+                        "type": "SqlServerSink",
+                        "writeBehavior": "insert"
+                    },
+                    "enableStaging": false
+                },
+                "inputs": [
+                    {
+                        "referenceName": "ds_Parity_SqlTable",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "Schema": "pty",
+                            "Table": "G22_Input"
+                        }
+                    }
+                ],
+                "outputs": [
+                    {
+                        "referenceName": "ds_Parity_SqlTable",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "Schema": "out_adf",
+                            "Table": "G22_LookupResult"
+                        }
+                    }
+                ]
+            }
+        ],
+        "folder": {
+            "name": "parity"
+        },
+        "annotations": [
+            "parity"
+        ]
+    }
+}

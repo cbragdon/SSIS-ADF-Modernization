@@ -4,6 +4,28 @@ All notable changes to this repository. Dates are local (America/New_York).
 
 ## [Unreleased] — 2026-10-20
 
+### Added (2026-10-21) — parity scenario packages and pipelines (G22–G30)
+- `01_New-SsisTestProject.ps1 -Suite ParityTests` builds the `ParityTests` project: P22–P30, runnable, with
+  live column metadata. It copies `tests/parity/data` to `<LandingPath>\parity\in`; LandingPath defaults to
+  `build\landing`.
+- `adf/`: linked services, datasets and the nine `pl_parity_*` pipelines, with placeholders for the server,
+  landing share, Key Vault and service account. Not yet run in a factory.
+- `sql/03_Seed-ParityScenarios.sql`: `pty.G23_AdfStage` and `pty.G24_AdfStage` for the ADF file copies.
+
+### Changed (2026-10-21)
+- `parity_cases.csv`: `SsisFolder` is `ZZ_AssessmentTests` (the deploy script's folder), and the G22–G26 notes
+  record what SSIS 2025 actually did: full-cache Lookup matches NULL to a NULL key, DT_NUMERIC truncates
+  rather than rounds, an empty date field fails with RetainNulls off, and Sort kept the last duplicate.
+
+### Fixed (2026-10-21)
+- T22: the Cache connection manager's file is its connection string; SSIS 17.0 has no `FileName` property,
+  so the build no longer warns.
+
+### Verified (2026-10-21) — parity, SSIS side
+- SQL Server 2025 CU9 (Windows, Developer): P22–P30 deployed to SSISDB and run with `-ExecuteSsis`: eight
+  succeeded, P30 failed as designed. The pipelines' SQL, rehearsed against `out_adf`, gave PASS on all eight
+  table cases (G22–G28). ADF itself has not run.
+
 ### Fixed (2026-10-21) — builder on SQL Server 2025 with T16–T27
 - `01_New-SsisTestProject.ps1` preloads every installed SSIS task, enumerator and managed-connection
   assembly instead of a fixed list. The new Execute Process, Bulk Insert and Foreach enumerator packages

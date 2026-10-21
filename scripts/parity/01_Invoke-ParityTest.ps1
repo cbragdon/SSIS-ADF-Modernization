@@ -88,9 +88,9 @@
 .NOTES
     Version : 1.0.0
     Part of : SSIS-ADF-Modernization repository (scripts\parity)
-    Status  : Comparison path verified by 02_Test-ParityHarness.ps1 against SQL Server 2022 (Linux
-              container). -ExecuteSsis and -ExecuteAdf have not been run yet: the scenario packages
-              and pipelines are still to be built.
+    Status  : Comparison path verified by 02_Test-ParityHarness.ps1 against SQL Server 2017-2025.
+              -ExecuteSsis run against SQL Server 2025 CU9 (Windows) with the ParityTests packages P22-P30.
+              -ExecuteAdf has not been run yet: the pipelines in adf\ are authored but not deployed.
 #>
 [CmdletBinding()]
 param(

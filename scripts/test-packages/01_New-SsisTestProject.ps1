@@ -17,7 +17,8 @@
 
     WHAT IT BUILDS
     --------------
-    One project, 27 packages. Each package exercises specific routing rules in
+    With -Suite ParityTests it builds the ParityTests project instead (P22-P30, one per data-parity gap
+    G22-G30; see docs\04_parity-harness.md). Otherwise: one project, 27 packages. Each package exercises specific routing rules in
     01_Invoke-SsisModernizationAssessment.ps1, and each has an expected route recorded in
     tests\expected\AssessmentTests_expected_routes.csv so the assessment can be regression-tested.
     See docs\02_test-package-catalog.md for the full coverage matrix.
@@ -83,8 +84,15 @@
     Folder where individual .dtsx files are written for source control review.
     Default: <repo>\test-packages\AssessmentTests.
 
+.PARAMETER Suite
+    AssessmentTests (default): the 27 routing packages T01-T27, parse-and-deploy.
+    ParityTests: the data-parity packages P22-P30 (gaps G22-G30). They run, so column metadata is always
+    read from the live test database (sql\01-03 applied, -ResolveMetadata implied), and the flat-file
+    inputs in tests\parity\data are copied to <LandingPath>\parity\in. LandingPath defaults to
+    <repo>\build\landing for this suite. See docs\04_parity-harness.md.
+
 .PARAMETER ProjectName
-    SSIS project name. Must match the -ProjectName used by the deploy script. Default AssessmentTests.
+    SSIS project name. Must match the -ProjectName used by the deploy script. Default: the suite name.
 
 .PARAMETER TestDbServer
     Default value of the project parameter TestDbServer (the server hosting SsisAssessmentTest).
@@ -122,20 +130,25 @@
     # Include live metadata so T02 can execute (seed database must exist first)
     powershell.exe -File .\01_New-SsisTestProject.ps1 -TestDbServer <DevSqlServer> -ResolveMetadata
 
+.EXAMPLE
+    # Data-parity packages P22-P30 (sql\01-03 applied first)
+    powershell.exe -File .\01_New-SsisTestProject.ps1 -Suite ParityTests -TestDbServer <DevSqlServer> -LandingPath '\\<FileServer>\ssis_landing'
+
 .NOTES
-    Version : 1.1.0
+    Version : 1.2.0
     Part of : SSIS-ADF-Modernization repository (scripts\test-packages)
-    Status  : T01-T15 executed against SQL Server 2025 (SSIS 17.0): 14 of 15 packages build (T15 skipped,
-              CDC/Oracle components removed in 2025). T16-T27 (v1.1.0) are not yet compiled or run on SSIS:
-              check build_manifest.csv (Warnings, SkippedItems) after the first build. Earlier SSIS versions
-              not yet run.
+    Status  : SQL Server 2025 (SSIS 17.0): AssessmentTests builds 26 of 27 packages with no warnings (T15
+              skipped, CDC/Oracle components removed in 2025). ParityTests (v1.2.0) builds all nine packages,
+              which deploy and run through SSISDB. Earlier SSIS versions not yet run.
 #>
 [CmdletBinding()]
 param(
     [string]$OutputPath,
     [string]$SourcePath,
+    [ValidateSet('AssessmentTests', 'ParityTests')]
+    [string]$Suite = 'AssessmentTests',
     [ValidatePattern('^[A-Za-z0-9_]+$')]
-    [string]$ProjectName = 'AssessmentTests',
+    [string]$ProjectName,
     [string]$TestDbServer = 'localhost',
     [string]$TestDbName = 'SsisAssessmentTest',
     [string]$TestDbProvider = 'MSOLEDBSQL',
@@ -150,6 +163,12 @@ $ErrorActionPreference = 'Stop'
 
 #region ---------------- 0. Paths, logging, preconditions ----------------
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+if (-not $ProjectName) { $ProjectName = $Suite }
+if ($Suite -eq 'ParityTests') {
+    # The parity packages run, so their column metadata always comes from the live test database.
+    $ResolveMetadata = [switch]$true
+    if (-not $PSBoundParameters.ContainsKey('LandingPath')) { $LandingPath = Join-Path $RepoRoot 'build\landing' }
+}
 if (-not $OutputPath) { $OutputPath = Join-Path $RepoRoot 'build' }
 if (-not $SourcePath) { $SourcePath = Join-Path $RepoRoot ('test-packages\' + $ProjectName) }
 New-Item -ItemType Directory -Path $OutputPath, $SourcePath -Force | Out-Null
@@ -245,6 +264,7 @@ namespace SsisTestKit
         public string TestDbProvider;
         public string LandingPath;
         public bool   ResolveMetadata;
+        public string Suite;           // AssessmentTests | ParityTests
     }
 
     public class Builder
@@ -516,9 +536,19 @@ namespace SsisTestKit
             try { cmSql.SetExpression("Password", "@[$Project::SqlLoginPassword]"); }
             catch (Exception ex) { Warn("Password expression not set on TestDb_Sql: " + ex.Message); }
 
-            T01(); T02(); T03(); T04(); T05(); T06(); T07(); T08(); T09(); T10();
-            T11(); T12(); T13(); T14(); T15(); T16(); T17(); T18(); T19(); T20();
-            T21(); T22(); T23(); T24(); T25(); T26(); T27();
+            if (s.Suite == "ParityTests")
+            {
+                // Create one Execute SQL Task before any data flow: once the pipeline assemblies are loaded,
+                // the first SQLTask creation fails with 0x80131401 inside powershell.exe.
+                using (Package warmUp = new Package()) { warmUp.Executables.Add("STOCK:SQLTask"); }
+                P22(); P23(); P24(); P25(); P26(); P27(); P28(); P29(); P30();
+            }
+            else
+            {
+                T01(); T02(); T03(); T04(); T05(); T06(); T07(); T08(); T09(); T10();
+                T11(); T12(); T13(); T14(); T15(); T16(); T17(); T18(); T19(); T20();
+                T21(); T22(); T23(); T24(); T25(); T26(); T27();
+            }
 
             project.Save();
             project.Dispose();
@@ -1039,7 +1069,8 @@ namespace SsisTestKit
             ConnectionManager cache = p.Connections.Add("CACHE");
             cache.Name = "Product cache";
             SetCmProp(cache, "UseFile", true);
-            SetCmProp(cache, "FileName", s.LandingPath + "\\cache\\product.caw");
+            // The cache file is the connection string: the Cache connection manager has no FileName property.
+            cache.ConnectionString = s.LandingPath + "\\cache\\product.caw";
             // Keep the TaskHosts from Add: linking Executables fetched back from p.Executables breaks SaveToXml (see BuildCopy).
             TaskHost fillHost = AddTask(p, "Data Flow Task", "STOCK:PipelineTask", "Fill product cache");
             MainPipe fill = fillHost == null ? null : (MainPipe)fillHost.InnerObject;
@@ -1203,6 +1234,20 @@ namespace SsisTestKit
             catch (Exception ex) { Warn("Could not set " + prop + "=" + memberName + " on " + th.Name + ": " + ex.Message); }
         }
 
+        /// <summary>Sets a property on the task's inner object (for properties the TaskHost does not expose).</summary>
+        private void SetInnerProp(TaskHost th, string prop, object value)
+        {
+            if (th == null) return;
+            try
+            {
+                object inner = th.InnerObject;
+                System.Reflection.PropertyInfo pi = inner.GetType().GetProperty(prop);
+                if (pi == null) { Warn(th.Name + ": no property " + prop); return; }
+                pi.SetValue(inner, value, null);
+            }
+            catch (Exception ex) { Warn("Could not set " + prop + " on " + th.Name + ": " + ex.Message); }
+        }
+
         /// <summary>Adds an Execute SQL result binding (result name or ordinal -> variable) through reflection.</summary>
         private void AddResultBinding(TaskHost th, string resultName, string variable)
         {
@@ -1276,6 +1321,485 @@ namespace SsisTestKit
             catch (Exception ex) { Warn("Columns not defined on " + name + ": " + ex.Message); }
             return ff;
         }
+
+        // ------------------------------------------------------------------ packages: data parity (G22-G30)
+        // These packages run. Column metadata is always read from the live test database (sql\03 must have
+        // run), and every input and output is a pty / out_ssis object or a file under <LandingPath>\parity.
+        // tests\parity\parity_cases.csv names them; scripts\parity\01_Invoke-ParityTest.ps1 runs them.
+
+        private const string LandingExpr = "@[$Project::LandingPath]";
+
+        private Package NewParityPackage(string name, string purpose)
+        {
+            Package p = NewPackage(name, "", "", true, purpose);
+            return p;
+        }
+
+        private IDTSComponentMetaData100 SqlSource(MainPipe mp, string name, string sql)
+        {
+            IDTSComponentMetaData100 src = AddComponent(mp, "OLE DB Source", name);
+            UseConnection(src, cmWindows);
+            SetCompProp(src, "AccessMode", 2);   // SQL command
+            SetCompProp(src, "SqlCommand", sql);
+            if (src != null) Refresh(src);
+            return src;
+        }
+
+        private IDTSComponentMetaData100 VariableSource(MainPipe mp, string name, string variable)
+        {
+            IDTSComponentMetaData100 src = AddComponent(mp, "OLE DB Source", name);
+            UseConnection(src, cmWindows);
+            SetCompProp(src, "AccessMode", 3);   // SQL command from variable
+            SetCompProp(src, "SqlCommandVariable", variable);
+            if (src != null) Refresh(src);
+            return src;
+        }
+
+        /// <summary>OLE DB fast-load destination attached to the given output, mapped by column name.</summary>
+        private IDTSComponentMetaData100 TableDest(MainPipe mp, string name, string table, IDTSComponentMetaData100 from, int outputIndex,
+                                                   string fastLoadOptions, bool keepNulls)
+        {
+            IDTSComponentMetaData100 dst = AddComponent(mp, "OLE DB Destination", name);
+            UseConnection(dst, cmWindows);
+            SetCompProp(dst, "AccessMode", 3);   // table or view - fast load
+            SetCompProp(dst, "OpenRowset", table);
+            SetCompProp(dst, "FastLoadOptions", fastLoadOptions ?? "");
+            SetCompProp(dst, "FastLoadKeepNulls", keepNulls);
+            PathTo(mp, from, outputIndex, dst, 0);
+            if (dst != null && Refresh(dst)) MapMatching(dst);
+            return dst;
+        }
+
+        /// <summary>Selects and maps only the upstream columns that have an external column of the same name.</summary>
+        private void MapMatching(IDTSComponentMetaData100 dest)
+        {
+            CManagedComponentWrapper inst = dest.Instantiate();
+            IDTSInput100 input = dest.InputCollection[0];
+            IDTSVirtualInput100 vi = input.GetVirtualInput();
+            foreach (IDTSVirtualInputColumn100 vc in vi.VirtualInputColumnCollection)
+            {
+                foreach (IDTSExternalMetadataColumn100 ext in input.ExternalMetadataColumnCollection)
+                {
+                    if (!string.Equals(ext.Name, vc.Name, StringComparison.OrdinalIgnoreCase)) continue;
+                    IDTSInputColumn100 ic = inst.SetUsageType(input.ID, vi, vc.LineageID, DTSUsageType.UT_READONLY);
+                    inst.MapInputColumn(input.ID, ic.ID, ext.ID);
+                    break;
+                }
+            }
+        }
+
+        private int OutputIndex(IDTSComponentMetaData100 md, string nameContains)
+        {
+            for (int i = 0; i < md.OutputCollection.Count; i++)
+                if (md.OutputCollection[i].Name.IndexOf(nameContains, StringComparison.OrdinalIgnoreCase) >= 0) return i;
+            Warn(md.Name + ": no output named like '" + nameContains + "'");
+            return 0;
+        }
+
+        private IDTSVirtualInputColumn100 FindVirtual(IDTSVirtualInput100 vi, string name)
+        {
+            foreach (IDTSVirtualInputColumn100 vc in vi.VirtualInputColumnCollection)
+                if (string.Equals(vc.Name, name, StringComparison.OrdinalIgnoreCase)) return vc;
+            throw new InvalidOperationException("No upstream column " + name);
+        }
+
+        /// <summary>Adds a Derived Column output column with an SSIS expression.</summary>
+        private void Derive(IDTSComponentMetaData100 dc, string name, string expression, RtWrapper.DataType type, int length, int codePage)
+        {
+            if (dc == null) return;
+            try
+            {
+                CManagedComponentWrapper inst = dc.Instantiate();
+                // Column references are written [Name]; the stored Expression uses #LineageID, so each
+                // referenced upstream column is selected and substituted.
+                string stored = expression;
+                IDTSInput100 input = dc.InputCollection[0];
+                IDTSVirtualInput100 vi = input.GetVirtualInput();
+                foreach (IDTSVirtualInputColumn100 vc in vi.VirtualInputColumnCollection)
+                {
+                    string token = "[" + vc.Name + "]";
+                    if (stored.IndexOf(token, StringComparison.Ordinal) < 0) continue;
+                    inst.SetUsageType(input.ID, vi, vc.LineageID, DTSUsageType.UT_READONLY);
+                    stored = stored.Replace(token, "#" + vc.LineageID);
+                }
+                IDTSOutput100 o = dc.OutputCollection[0];
+                IDTSOutputColumn100 oc = inst.InsertOutputColumnAt(o.ID, o.OutputColumnCollection.Count, name, "");
+                oc.SetDataTypeProperties(type, length, 0, 0, codePage);
+                inst.SetOutputColumnProperty(o.ID, oc.ID, "Expression", stored);
+                inst.SetOutputColumnProperty(o.ID, oc.ID, "FriendlyExpression", expression);
+            }
+            catch (Exception ex) { Warn("Derived column " + name + " not added on " + dc.Name + ": " + ex.Message); }
+        }
+
+        /// <summary>Adds a Data Conversion output column. ignoreFailure: conversion errors and truncation give NULL instead of failing.</summary>
+        private void ConvertColumn(IDTSComponentMetaData100 dc, string inputName, string outputName, RtWrapper.DataType type, int length, int codePage, bool ignoreFailure)
+        {
+            if (dc == null) return;
+            try
+            {
+                CManagedComponentWrapper inst = dc.Instantiate();
+                IDTSInput100 input = dc.InputCollection[0];
+                IDTSVirtualInput100 vi = input.GetVirtualInput();
+                IDTSVirtualInputColumn100 vc = FindVirtual(vi, inputName);
+                inst.SetUsageType(input.ID, vi, vc.LineageID, DTSUsageType.UT_READONLY);
+                IDTSOutput100 o = dc.OutputCollection[0];
+                IDTSOutputColumn100 oc = inst.InsertOutputColumnAt(o.ID, o.OutputColumnCollection.Count, outputName, "");
+                inst.SetOutputColumnProperty(o.ID, oc.ID, "SourceInputColumnLineageID", vc.LineageID);
+                inst.SetOutputColumnDataTypeProperties(o.ID, oc.ID, type, length, 0, 0, codePage);
+                if (ignoreFailure)
+                {
+                    oc.ErrorRowDisposition = DTSRowDisposition.RD_IgnoreFailure;
+                    oc.TruncationRowDisposition = DTSRowDisposition.RD_IgnoreFailure;
+                }
+            }
+            catch (Exception ex) { Warn("Conversion " + inputName + " -> " + outputName + " not added on " + dc.Name + ": " + ex.Message); }
+        }
+
+        private Variable ExprVariable(Package p, string name, string expression)
+        {
+            Variable v = p.Variables.Add(name, false, "User", "");
+            v.EvaluateAsExpression = true;
+            v.Expression = expression;
+            return v;
+        }
+
+        /// <summary>
+        /// Delimited flat file connection with typed columns. Header row, comma separated; qualifier '"' or none.
+        /// types/widths/precisions/scales are per column; rowDelimiter is "\r\n" or "\n".
+        /// </summary>
+        private ConnectionManager TypedFlatFile(Package p, string name, string staticPath, string pathExpression, int codePage, string rowDelimiter,
+                                                bool qualified, string[] cols, RtWrapper.DataType[] types, int[] widths, int[] precisions, int[] scales)
+        {
+            ConnectionManager ff = p.Connections.Add("FLATFILE");
+            ff.Name = name;
+            ff.ConnectionString = staticPath;
+            if (pathExpression != null) ff.SetExpression("ConnectionString", pathExpression);
+            SetCmProp(ff, "Format", "Delimited");
+            SetCmProp(ff, "CodePage", codePage);
+            SetCmProp(ff, "Unicode", false);
+            SetCmProp(ff, "ColumnNamesInFirstDataRow", true);
+            SetCmProp(ff, "HeaderRowDelimiter", rowDelimiter);
+            SetCmProp(ff, "RowDelimiter", rowDelimiter);
+            if (qualified) SetCmProp(ff, "TextQualifier", "\"");
+            RtWrapper.IDTSConnectionManagerFlatFile100 ffi = (RtWrapper.IDTSConnectionManagerFlatFile100)ff.InnerObject;
+            for (int c = 0; c < cols.Length; c++)
+            {
+                RtWrapper.IDTSConnectionManagerFlatFileColumn100 col = ffi.Columns.Add();
+                ((RtWrapper.IDTSName100)col).Name = cols[c];
+                col.ColumnType = "Delimited";
+                col.ColumnDelimiter = c == cols.Length - 1 ? rowDelimiter : ",";
+                col.TextQualified = qualified;
+                col.DataType = types[c];
+                if (types[c] == RtWrapper.DataType.DT_STR || types[c] == RtWrapper.DataType.DT_WSTR) col.MaximumWidth = widths[c];
+                if (types[c] == RtWrapper.DataType.DT_NUMERIC) { col.DataPrecision = precisions[c]; col.DataScale = scales[c]; }
+            }
+            return ff;
+        }
+
+        private IDTSComponentMetaData100 FlatFileSource(MainPipe mp, string name, ConnectionManager ff, bool retainNulls)
+        {
+            IDTSComponentMetaData100 src = AddComponent(mp, "Flat File Source", name);
+            UseConnection(src, ff);
+            SetCompProp(src, "RetainNulls", retainNulls);
+            if (src != null) Refresh(src);
+            return src;
+        }
+
+        /// <summary>Truncation of the named source output columns is ignored (the value is cut, the row kept).</summary>
+        private void IgnoreTruncation(IDTSComponentMetaData100 src, params string[] columns)
+        {
+            if (src == null) return;
+            foreach (IDTSOutputColumn100 oc in src.OutputCollection[0].OutputColumnCollection)
+                foreach (string c in columns)
+                    if (string.Equals(oc.Name, c, StringComparison.OrdinalIgnoreCase)) oc.TruncationRowDisposition = DTSRowDisposition.RD_IgnoreFailure;
+        }
+
+        private ConnectionManager FolderConnection(Package p, string name, string staticPath, string pathExpression, int usageType)
+        {
+            ConnectionManager f = p.Connections.Add("FILE");
+            f.Name = name;
+            f.ConnectionString = staticPath;
+            SetCmProp(f, "FileUsageType", usageType);   // 2 = existing folder, 3 = create folder
+            if (pathExpression != null) f.SetExpression("ConnectionString", pathExpression);
+            return f;
+        }
+
+        private TaskHost FileSystemTask(IDTSSequence container, string name, string operation, ConnectionManager folder)
+        {
+            TaskHost th = AddTask(container, "File System Task", "STOCK:FileSystemTask", name);
+            if (th == null) return null;
+            SetTaskEnum(th, "Operation", operation);
+            SetProp(th, "Source", folder.Name);
+            if (operation == "CreateDirectory") SetProp(th, "OverwriteDestinationFile", true);   // shown as UseDirectoryIfExists in the designer
+            return th;
+        }
+
+        private void P22()
+        {
+            Package p = NewParityPackage("P22_LookupSemantics",
+                "G22: full-cache Lookup of pty.G22_Input against pty.G22_Reference (first duplicate wins: ORDER BY RefId). Matches and no-matches are both written to out_ssis.G22_LookupResult with MatchStatus.");
+            MainPipe mp = AddDataFlow(p, "Lookup product category");
+            IDTSComponentMetaData100 src = SqlSource(mp, "Read pty G22_Input", "SELECT InputId, ProductCode FROM pty.G22_Input;");
+            IDTSComponentMetaData100 look = AddComponent(mp, "Lookup", "Lookup ProductCode");
+            UseConnection(look, cmWindows);
+            SetCompProp(look, "CacheType", 0);          // full cache
+            SetCompProp(look, "NoMatchBehavior", 1);    // send rows with no match to the no match output
+            SetCompProp(look, "SqlCommand", "SELECT ProductCode, Category FROM pty.G22_Reference ORDER BY RefId;");
+            Path(mp, src, look);
+            if (look != null)
+            {
+                try
+                {
+                    Refresh(look);
+                    CManagedComponentWrapper inst = look.Instantiate();
+                    IDTSInput100 input = look.InputCollection[0];
+                    IDTSVirtualInput100 vi = input.GetVirtualInput();
+                    IDTSInputColumn100 key = inst.SetUsageType(input.ID, vi, FindVirtual(vi, "ProductCode").LineageID, DTSUsageType.UT_READONLY);
+                    inst.SetInputColumnProperty(input.ID, key.ID, "JoinToReferenceColumn", "ProductCode");
+                    IDTSOutput100 match = look.OutputCollection[OutputIndex(look, "Match Output")];
+                    IDTSOutputColumn100 cat = inst.InsertOutputColumnAt(match.ID, 0, "Category", "");
+                    cat.SetDataTypeProperties(RtWrapper.DataType.DT_STR, 20, 0, 0, 1252);
+                    inst.SetOutputColumnProperty(match.ID, cat.ID, "CopyFromReferenceColumn", "Category");
+                }
+                catch (Exception ex) { Warn("Lookup join not configured: " + ex.Message); }
+            }
+            IDTSComponentMetaData100 matched = AddComponent(mp, "Derived Column", "Status Match");
+            PathTo(mp, look, OutputIndex(look, "Lookup Match Output"), matched, 0);
+            Derive(matched, "MatchStatus", "(DT_STR,10,1252)\"Match\"", RtWrapper.DataType.DT_STR, 10, 1252);
+            IDTSComponentMetaData100 missed = AddComponent(mp, "Derived Column", "Status NoMatch");
+            PathTo(mp, look, OutputIndex(look, "No Match"), missed, 0);
+            Derive(missed, "MatchStatus", "(DT_STR,10,1252)\"NoMatch\"", RtWrapper.DataType.DT_STR, 10, 1252);
+            // Two destinations instead of a Union All: no TABLOCK, so the two inserts do not block each other.
+            TableDest(mp, "Write matches", "[out_ssis].[G22_LookupResult]", matched, 0, "CHECK_CONSTRAINTS", false);
+            TableDest(mp, "Write no matches", "[out_ssis].[G22_LookupResult]", missed, 0, "CHECK_CONSTRAINTS", false);
+            FinishPackage(p);
+        }
+
+        private void P23()
+        {
+            Package p = NewParityPackage("P23_BlankNull",
+                "G23: G23_blanks.csv through a Flat File Source with RetainNulls = False (the designer default) into out_ssis.G23_BlankNull. ShipDate is read as text: an empty DT_DBDATE field with RetainNulls = False fails the destination ('Invalid date format'), so a Derived Column maps blank to NULL.");
+            string file = "\\parity\\in\\G23_blanks.csv";
+            ConnectionManager ff = TypedFlatFile(p, "G23 blanks csv", s.LandingPath + file, LandingExpr + " + \"\\\\parity\\\\in\\\\G23_blanks.csv\"", 1252, "\r\n", true,
+                new string[] { "Id", "Code", "Quantity", "ShipDateText", "Note" },
+                new RtWrapper.DataType[] { RtWrapper.DataType.DT_I4, RtWrapper.DataType.DT_STR, RtWrapper.DataType.DT_I4, RtWrapper.DataType.DT_STR, RtWrapper.DataType.DT_STR },
+                new int[] { 0, 20, 0, 10, 50 }, new int[5], new int[5]);
+            MainPipe mp = AddDataFlow(p, "Load blanks");
+            IDTSComponentMetaData100 src = FlatFileSource(mp, "Read G23 blanks", ff, false);
+            IDTSComponentMetaData100 dc = AddComponent(mp, "Derived Column", "Blank ShipDate to NULL");
+            Path(mp, src, dc);
+            Derive(dc, "ShipDate", "TRIM([ShipDateText]) == \"\" ? NULL(DT_DBDATE) : (DT_DBDATE)[ShipDateText]", RtWrapper.DataType.DT_DBDATE, 0, 0);
+            TableDest(mp, "Write out_ssis G23", "[out_ssis].[G23_BlankNull]", dc, 0, "TABLOCK,CHECK_CONSTRAINTS", false);
+            FinishPackage(p);
+        }
+
+        private void P24()
+        {
+            Package p = NewParityPackage("P24_TypesCodePages",
+                "G24: G24_types_1252.csv (code page 1252, CRLF) and G24_types_utf8.csv (UTF-8 with BOM, LF, no final newline) into out_ssis.G24_Types. Names longer than 10 are truncated silently; text outside code page 1252 is converted for the varchar column.");
+            RtWrapper.DataType[] types = new RtWrapper.DataType[] { RtWrapper.DataType.DT_I4, RtWrapper.DataType.DT_STR, RtWrapper.DataType.DT_WSTR, RtWrapper.DataType.DT_NUMERIC, RtWrapper.DataType.DT_R8 };
+            int[] widths = new int[] { 0, 10, 10, 0, 0 };
+            int[] precisions = new int[] { 0, 0, 0, 9, 0 };
+            int[] scales = new int[] { 0, 0, 0, 2, 0 };
+
+            ConnectionManager ansi = TypedFlatFile(p, "G24 types 1252", s.LandingPath + "\\parity\\in\\G24_types_1252.csv", LandingExpr + " + \"\\\\parity\\\\in\\\\G24_types_1252.csv\"", 1252, "\r\n", true,
+                new string[] { "Id", "NameAnsi", "NameUnicode", "Amount", "Ratio" }, types, widths, precisions, scales);
+            // UTF-8 file: the varchar column is read as Unicode and converted to code page 1252 in the flow.
+            RtWrapper.DataType[] typesUtf8 = (RtWrapper.DataType[])types.Clone();
+            typesUtf8[1] = RtWrapper.DataType.DT_WSTR;
+            ConnectionManager utf8 = TypedFlatFile(p, "G24 types utf8", s.LandingPath + "\\parity\\in\\G24_types_utf8.csv", LandingExpr + " + \"\\\\parity\\\\in\\\\G24_types_utf8.csv\"", 65001, "\n", true,
+                new string[] { "Id", "NameAnsiText", "NameUnicode", "Amount", "Ratio" }, typesUtf8, widths, precisions, scales);
+
+            TaskHost h1 = AddTask(p, "Data Flow Task", "STOCK:PipelineTask", "Load 1252 file");
+            MainPipe mp1 = h1 == null ? null : (MainPipe)h1.InnerObject;
+            IDTSComponentMetaData100 src1 = FlatFileSource(mp1, "Read 1252 file", ansi, false);
+            IgnoreTruncation(src1, "NameAnsi", "NameUnicode");
+            IDTSComponentMetaData100 tag1 = AddComponent(mp1, "Derived Column", "Add SourceFile");
+            Path(mp1, src1, tag1);
+            Derive(tag1, "SourceFile", "(DT_STR,40,1252)\"G24_types_1252.csv\"", RtWrapper.DataType.DT_STR, 40, 1252);
+            TableDest(mp1, "Write out_ssis G24", "[out_ssis].[G24_Types]", tag1, 0, "TABLOCK,CHECK_CONSTRAINTS", false);
+
+            TaskHost h2 = AddTask(p, "Data Flow Task", "STOCK:PipelineTask", "Load UTF-8 file");
+            MainPipe mp2 = h2 == null ? null : (MainPipe)h2.InnerObject;
+            IDTSComponentMetaData100 src2 = FlatFileSource(mp2, "Read UTF-8 file", utf8, false);
+            IgnoreTruncation(src2, "NameAnsiText", "NameUnicode");
+            IDTSComponentMetaData100 conv = AddComponent(mp2, "Data Conversion", "To code page 1252");
+            Path(mp2, src2, conv);
+            ConvertColumn(conv, "NameAnsiText", "NameAnsi", RtWrapper.DataType.DT_STR, 10, 1252, true);
+            IDTSComponentMetaData100 tag2 = AddComponent(mp2, "Derived Column", "Add SourceFile");
+            Path(mp2, conv, tag2);
+            Derive(tag2, "SourceFile", "(DT_STR,40,1252)\"G24_types_utf8.csv\"", RtWrapper.DataType.DT_STR, 40, 1252);
+            TableDest(mp2, "Write out_ssis G24", "[out_ssis].[G24_Types]", tag2, 0, "TABLOCK,CHECK_CONSTRAINTS", false);
+            Link(p, h1, h2, DTSExecResult.Success, null);
+            FinishPackage(p);
+        }
+
+        private void P25()
+        {
+            Package p = NewParityPackage("P25_Dedupe",
+                "G25: Sort on CustomerKey with remove duplicates. The source is ordered CustomerKey, UpdatedAt DESC, RowId so the surviving row is the latest UpdatedAt, then the lowest RowId.");
+            MainPipe mp = AddDataFlow(p, "Dedupe customers");
+            IDTSComponentMetaData100 src = SqlSource(mp, "Read pty G25_Input",
+                "SELECT RowId, CustomerKey, Email, UpdatedAt FROM pty.G25_Input ORDER BY CustomerKey, UpdatedAt DESC, RowId;");
+            IDTSComponentMetaData100 sort = AddComponent(mp, "Sort", "Remove duplicate CustomerKey");
+            Path(mp, src, sort);
+            SetCompProp(sort, "EliminateDuplicates", true);
+            if (sort != null)
+            {
+                try
+                {
+                    CManagedComponentWrapper inst = sort.Instantiate();
+                    IDTSInput100 input = sort.InputCollection[0];
+                    IDTSVirtualInput100 vi = input.GetVirtualInput();
+                    foreach (IDTSVirtualInputColumn100 vc in vi.VirtualInputColumnCollection)
+                    {
+                        IDTSInputColumn100 ic = inst.SetUsageType(input.ID, vi, vc.LineageID, DTSUsageType.UT_READONLY);
+                        if (vc.Name == "CustomerKey") inst.SetInputColumnProperty(input.ID, ic.ID, "NewSortKeyPosition", 1);
+                    }
+                }
+                catch (Exception ex) { Warn("Sort keys not configured: " + ex.Message); }
+            }
+            TableDest(mp, "Write out_ssis G25", "[out_ssis].[G25_Dedupe]", sort, 0, "TABLOCK,CHECK_CONSTRAINTS", false);
+            FinishPackage(p);
+        }
+
+        private void P26()
+        {
+            Package p = NewParityPackage("P26_LoadOptions",
+                "G26: fast load into out_ssis.G26_LoadOptions with CHECK_CONSTRAINTS and FIRE_TRIGGERS, KeepNulls off, one row per commit; rows the constraint rejects go to the error output and are dropped.");
+            MainPipe mp = AddDataFlow(p, "Fast load with options");
+            IDTSComponentMetaData100 src = SqlSource(mp, "Read pty G26_Input", "SELECT SourceId, Amount, Channel FROM pty.G26_Input ORDER BY SourceId;");
+            IDTSComponentMetaData100 dst = TableDest(mp, "Write out_ssis G26", "[out_ssis].[G26_LoadOptions]", src, 0, "CHECK_CONSTRAINTS,FIRE_TRIGGERS", false);
+            SetCompProp(dst, "FastLoadMaxInsertCommitSize", 1);
+            if (dst != null) dst.InputCollection[0].ErrorRowDisposition = DTSRowDisposition.RD_RedirectRow;
+            FinishPackage(p);
+        }
+
+        private void P27()
+        {
+            Package p = NewParityPackage("P27_ProcSource",
+                "G27: OLE DB Source runs pty.usp_G27_Source (temp table inside) with WITH RESULT SETS so metadata can be discovered; output to out_ssis.G27_ProcSource.");
+            MainPipe mp = AddDataFlow(p, "Load from procedure");
+            IDTSComponentMetaData100 src = SqlSource(mp, "Run pty usp_G27_Source",
+                "EXEC pty.usp_G27_Source @Region = 'east' WITH RESULT SETS ((CustomerId int NOT NULL, Region varchar(10) NOT NULL, TotalAmount decimal(14, 2) NOT NULL, OrderCount int NOT NULL));");
+            TableDest(mp, "Write out_ssis G27", "[out_ssis].[G27_ProcSource]", src, 0, "TABLOCK,CHECK_CONSTRAINTS", false);
+            FinishPackage(p);
+        }
+
+        private void P28()
+        {
+            Package p = NewParityPackage("P28_SystemVars",
+                "G28: date-folder expressions from the RunDate parameter, plus machine, user, start time and execution GUID, written to out_ssis.G28_SystemVars.");
+            Parameter runDate = p.Parameters.Add("RunDate", TypeCode.String);
+            runDate.Value = "2026-01-31";
+            runDate.Description = "Business date (yyyy-MM-dd). The folder and stamp values derive from it.";
+            string d = "(DT_DBDATE)@[$Package::RunDate]";
+            string yyyy = "(DT_WSTR,4)YEAR(" + d + ")";
+            string mm = "RIGHT(\"0\" + (DT_WSTR,2)MONTH(" + d + "), 2)";
+            string dd = "RIGHT(\"0\" + (DT_WSTR,2)DAY(" + d + "), 2)";
+            ExprVariable(p, "ArchiveFolder", "\"archive\\\\\" + " + yyyy + " + \"\\\\\" + " + mm + " + \"\\\\\"");
+            ExprVariable(p, "MonthFolder", yyyy + " + \"-\" + " + mm);
+            ExprVariable(p, "FileStamp", yyyy + " + " + mm + " + " + dd);
+            TaskHost ins = AddExecuteSql(p, "Record system variables", cmWindows, "SELECT 1;");
+            if (ins != null) ins.SetExpression("SqlStatementSource",
+                "\"INSERT out_ssis.G28_SystemVars (RunDate, ArchiveFolder, MonthFolder, FileStamp, MachineName, UserName, StartTime, ExecutionGuid) VALUES ('\" + @[$Package::RunDate]"
+                + " + \"', '\" + @[User::ArchiveFolder] + \"', '\" + @[User::MonthFolder] + \"', '\" + @[User::FileStamp]"
+                + " + \"', N'\" + REPLACE(@[System::MachineName], \"'\", \"''\") + \"', N'\" + REPLACE(@[System::UserName], \"'\", \"''\")"
+                + " + \"', '\" + (DT_WSTR, 30) @[System::StartTime] + \"', N'\" + @[System::ExecutionInstanceGUID] + \"');\"");
+            FinishPackage(p);
+        }
+
+        private void P29()
+        {
+            Package p = NewParityPackage("P29_OutputFiles",
+                "G29: pty.G29_Input written to <LandingPath>\\parity\\G29\\ssis as one file per Region (region_<Region>_<yyyyMMdd_HHmmss>.csv) and as files of 10 rows (part_<n>_<stamp>.csv). Code page 1252, CRLF, header row, no text qualifier, rows in RowId order.");
+            string st = "@[System::StartTime]";
+            Func<string, string> two = delegate(string part) { return "RIGHT(\"0\" + (DT_WSTR,2)DATEPART(\"" + part + "\", " + st + "), 2)"; };
+            ExprVariable(p, "Stamp", "(DT_WSTR,4)YEAR(" + st + ") + " + two("mm") + " + " + two("dd") + " + \"_\" + " + two("hh") + " + " + two("mi") + " + " + two("ss"));
+            p.Variables.Add("Regions", false, "User", new object());
+            p.Variables.Add("Region", false, "User", "east");
+            p.Variables.Add("PartCount", false, "User", 0);
+            p.Variables.Add("Part", false, "User", 1);
+            ExprVariable(p, "RegionSql", "\"SELECT RowId, Region, Amount FROM pty.G29_Input WHERE Region = '\" + @[User::Region] + \"' ORDER BY RowId;\"");
+            ExprVariable(p, "PartSql", "\"SELECT RowId, Region, Amount FROM (SELECT RowId, Region, Amount, (ROW_NUMBER() OVER (ORDER BY RowId) - 1) / 10 + 1 AS Part FROM pty.G29_Input) AS x WHERE Part = \" + (DT_WSTR, 10) @[User::Part] + \" ORDER BY RowId;\"");
+
+            string outDir = s.LandingPath + "\\parity\\G29\\ssis";
+            string outDirExpr = LandingExpr + " + \"\\\\parity\\\\G29\\\\ssis\"";
+            ConnectionManager create = FolderConnection(p, "G29 ssis folder (create)", outDir, outDirExpr, 3);
+            ConnectionManager clear = FolderConnection(p, "G29 ssis folder", outDir, outDirExpr, 2);
+            TaskHost mk = FileSystemTask(p, "Create output folder", "CreateDirectory", create);
+            TaskHost rm = FileSystemTask(p, "Empty output folder", "DeleteDirectoryContent", clear);
+            Link(p, mk, rm, DTSExecResult.Success, null);
+
+            string[] cols = new string[] { "RowId", "Region", "Amount" };
+            RtWrapper.DataType[] types = new RtWrapper.DataType[] { RtWrapper.DataType.DT_I4, RtWrapper.DataType.DT_STR, RtWrapper.DataType.DT_NUMERIC };
+            int[] widths = new int[] { 0, 10, 0 }; int[] precisions = new int[] { 0, 0, 9 }; int[] scales = new int[] { 0, 0, 2 };
+            ConnectionManager regionFile = TypedFlatFile(p, "Region file", outDir + "\\region_east.csv",
+                outDirExpr + " + \"\\\\region_\" + @[User::Region] + \"_\" + @[User::Stamp] + \".csv\"", 1252, "\r\n", false, cols, types, widths, precisions, scales);
+            ConnectionManager partFile = TypedFlatFile(p, "Part file", outDir + "\\part_1.csv",
+                outDirExpr + " + \"\\\\part_\" + (DT_WSTR, 10) @[User::Part] + \"_\" + @[User::Stamp] + \".csv\"", 1252, "\r\n", false, cols, types, widths, precisions, scales);
+
+            // One file per Region
+            TaskHost regions = AddExecuteSql(p, "Get regions", cmWindows, "SELECT DISTINCT Region FROM pty.G29_Input ORDER BY Region;");
+            SetTaskEnum(regions, "ResultSetType", "ResultSetType_Rowset");
+            AddResultBinding(regions, "0", "User::Regions");
+            ForEachLoop fe = (ForEachLoop)p.Executables.Add("STOCK:FOREACHLOOP");
+            fe.Name = "Each region";
+            Dictionary<string, object> props = new Dictionary<string, object>();
+            props["DataObjectVariable"] = "User::Regions";
+            if (SetEnumerator(fe, "Foreach ADO Enumerator", props)) MapLoopVariable(fe, "User::Region", 0);
+            TaskHost rf = AddTask(fe, "Data Flow Task", "STOCK:PipelineTask", "Write region file");
+            rf.DelayValidation = true;
+            MainPipe mpr = (MainPipe)rf.InnerObject;
+            IDTSComponentMetaData100 srcR = VariableSource(mpr, "Read region rows", "User::RegionSql");
+            FlatFileDest(mpr, "Region csv", regionFile, srcR);
+
+            // Files of 10 rows
+            TaskHost count = AddExecuteSql(p, "Count parts", cmWindows, "SELECT CAST(CEILING(COUNT(*) / 10.0) AS int) AS PartCount FROM pty.G29_Input;");
+            SetTaskEnum(count, "ResultSetType", "ResultSetType_SingleRow");
+            AddResultBinding(count, "PartCount", "User::PartCount");
+            ForLoop loop = (ForLoop)p.Executables.Add("STOCK:FORLOOP");
+            loop.Name = "Each part";
+            loop.InitExpression = "@[User::Part] = 1";
+            loop.EvalExpression = "@[User::Part] <= @[User::PartCount]";
+            loop.AssignExpression = "@[User::Part] = @[User::Part] + 1";
+            TaskHost pf = AddTask(loop, "Data Flow Task", "STOCK:PipelineTask", "Write part file");
+            pf.DelayValidation = true;
+            MainPipe mpp = (MainPipe)pf.InnerObject;
+            IDTSComponentMetaData100 srcP = VariableSource(mpp, "Read part rows", "User::PartSql");
+            FlatFileDest(mpp, "Part csv", partFile, srcP);
+
+            Link(p, rm, regions, DTSExecResult.Success, null);
+            Link(p, regions, fe, DTSExecResult.Success, null);
+            Link(p, fe, count, DTSExecResult.Success, null);
+            Link(p, count, loop, DTSExecResult.Success, null);
+            FinishPackage(p);
+        }
+
+        private IDTSComponentMetaData100 FlatFileDest(MainPipe mp, string name, ConnectionManager ff, IDTSComponentMetaData100 from)
+        {
+            IDTSComponentMetaData100 dst = AddComponent(mp, "Flat File Destination", name);
+            UseConnection(dst, ff);
+            SetCompProp(dst, "Overwrite", true);
+            Path(mp, from, dst);
+            if (dst != null && Refresh(dst)) MapMatching(dst);
+            return dst;
+        }
+
+        private void P30()
+        {
+            Package p = NewParityPackage("P30_EmptyResultSet",
+                "G30: Execute SQL Task with a single-row result set over pty.G30_Driver, which is empty. The task fails, so the package fails before 'Use driver row' runs.");
+            p.Variables.Add("BatchId", false, "User", 0);
+            p.Variables.Add("FolderPath", false, "User", "");
+            TaskHost get = AddExecuteSql(p, "Get driver row", cmWindows, "SELECT BatchId, FolderPath FROM pty.G30_Driver;");
+            SetTaskEnum(get, "ResultSetType", "ResultSetType_SingleRow");
+            AddResultBinding(get, "BatchId", "User::BatchId");
+            AddResultBinding(get, "FolderPath", "User::FolderPath");
+            TaskHost use = AddExecuteSql(p, "Use driver row", cmWindows, "SELECT 1 AS Used;");
+            Link(p, get, use, DTSExecResult.Success, null);
+            FinishPackage(p);
+        }
     }
 }
 '@
@@ -1294,6 +1818,15 @@ namespace SsisTestKit
     $settings.TestDbProvider  = $TestDbProvider
     $settings.LandingPath     = $LandingPath
     $settings.ResolveMetadata = [bool]$ResolveMetadata
+    $settings.Suite           = $Suite
+
+    if ($Suite -eq 'ParityTests') {
+        # Flat-file inputs (exact bytes) go where the packages read them: <LandingPath>\parity\in.
+        $inDir = Join-Path $LandingPath 'parity\in'
+        New-Item -ItemType Directory -Path $inDir -Force | Out-Null
+        Copy-Item -Path (Join-Path $RepoRoot 'tests\parity\data\*.csv') -Destination $inDir -Force
+        Write-Log -Message "Parity inputs copied to $inDir"
+    }
 
     $builder = New-Object SsisTestKit.Builder($settings)
     try { $builder.Build() }

@@ -1,0 +1,199 @@
+{
+    "name": "pl_parity_G24_Types",
+    "properties": {
+        "description": "G24 rewrite of P24_TypesCodePages: copy both files as text (code page 1252 with CRLF, UTF-8 with BOM and LF), then convert with the SSIS truncation and code page rules.",
+        "activities": [
+            {
+                "name": "Empty stage",
+                "description": "The stage holds one run only.",
+                "type": "Script",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.00:30:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "linkedServiceName": {
+                    "referenceName": "ls_SsisAssessmentTest",
+                    "type": "LinkedServiceReference"
+                },
+                "typeProperties": {
+                    "scripts": [
+                        {
+                            "type": "NonQuery",
+                            "text": "TRUNCATE TABLE pty.G24_AdfStage;"
+                        }
+                    ],
+                    "scriptBlockExecutionTimeout": "00:10:00"
+                }
+            },
+            {
+                "name": "Copy 1252 file to stage",
+                "type": "Copy",
+                "dependsOn": [
+                    {
+                        "activity": "Empty stage",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.00:30:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "typeProperties": {
+                    "source": {
+                        "type": "DelimitedTextSource",
+                        "additionalColumns": [
+                            {
+                                "name": "SourceFile",
+                                "value": "$$FILENAME"
+                            }
+                        ],
+                        "storeSettings": {
+                            "type": "FileServerReadSettings",
+                            "recursive": false
+                        },
+                        "formatSettings": {
+                            "type": "DelimitedTextReadSettings"
+                        }
+                    },
+                    "sink": {
+                        "type": "SqlServerSink",
+                        "writeBehavior": "insert"
+                    },
+                    "enableStaging": false
+                },
+                "inputs": [
+                    {
+                        "referenceName": "ds_Parity_InputCsv",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "FileName": "G24_types_1252.csv",
+                            "Encoding": "WINDOWS-1252",
+                            "RowDelimiter": "\r\n"
+                        }
+                    }
+                ],
+                "outputs": [
+                    {
+                        "referenceName": "ds_Parity_SqlTable",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "Schema": "pty",
+                            "Table": "G24_AdfStage"
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "Copy UTF-8 file to stage",
+                "type": "Copy",
+                "dependsOn": [
+                    {
+                        "activity": "Copy 1252 file to stage",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.00:30:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "typeProperties": {
+                    "source": {
+                        "type": "DelimitedTextSource",
+                        "additionalColumns": [
+                            {
+                                "name": "SourceFile",
+                                "value": "$$FILENAME"
+                            }
+                        ],
+                        "storeSettings": {
+                            "type": "FileServerReadSettings",
+                            "recursive": false
+                        },
+                        "formatSettings": {
+                            "type": "DelimitedTextReadSettings"
+                        }
+                    },
+                    "sink": {
+                        "type": "SqlServerSink",
+                        "writeBehavior": "insert"
+                    },
+                    "enableStaging": false
+                },
+                "inputs": [
+                    {
+                        "referenceName": "ds_Parity_InputCsv",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "FileName": "G24_types_utf8.csv",
+                            "Encoding": "UTF-8",
+                            "RowDelimiter": "\n"
+                        }
+                    }
+                ],
+                "outputs": [
+                    {
+                        "referenceName": "ds_Parity_SqlTable",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "Schema": "pty",
+                            "Table": "G24_AdfStage"
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "Convert to out_adf",
+                "description": "Same truncation, code page and decimal rules as the SSIS package.",
+                "type": "Script",
+                "dependsOn": [
+                    {
+                        "activity": "Copy UTF-8 file to stage",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.00:30:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "linkedServiceName": {
+                    "referenceName": "ls_SsisAssessmentTest",
+                    "type": "LinkedServiceReference"
+                },
+                "typeProperties": {
+                    "scripts": [
+                        {
+                            "type": "NonQuery",
+                            "text": "INSERT out_adf.G24_Types (Id, SourceFile, NameAnsi, NameUnicode, Amount, Ratio)\nSELECT CAST(Id AS int),\n       CAST(SourceFile AS varchar(40)),\n       CAST(LEFT(NameAnsi, 10) AS varchar(10)),        -- silent truncation; text outside code page 1252 is best-fit mapped as in SSIS\n       LEFT(NameUnicode, 10),\n       ROUND(CAST(Amount AS decimal(38, 10)), 2, 1),   -- SSIS DT_NUMERIC(9,2) truncates the third decimal: 12.345 -> 12.34\n       CAST(Ratio AS float)\n  FROM pty.G24_AdfStage;"
+                        }
+                    ],
+                    "scriptBlockExecutionTimeout": "00:10:00"
+                }
+            }
+        ],
+        "folder": {
+            "name": "parity"
+        },
+        "annotations": [
+            "parity"
+        ]
+    }
+}
