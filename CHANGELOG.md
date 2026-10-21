@@ -16,6 +16,8 @@ All notable changes to this repository. Dates are local (America/New_York).
 - `-ServerInstance "A,B"` from `powershell.exe -File` (one string) is split into servers; `HOST,1433` stays one.
   Two names for the same server (same `@@SERVERNAME`, e.g. `localhost` and `.`) are assessed once, with a
   warning, so a workbook never lists a package twice.
+- `ServerInstance` is no longer a column in `sprint_backlog.csv` or the workbooks: `SourceServerName` identifies
+  the server. `package_assessment.csv` keeps it for engineers.
 - Routing test v1.5.0 writes workbooks to a new folder each run and checks that the folder was created and
   logged, that there is one correctly named workbook per server holding every CSV row, and that the
   progress lines are in `transcript.log`. The CI sample artifact now carries the workbook.

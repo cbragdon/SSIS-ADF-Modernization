@@ -117,7 +117,7 @@ directly as Office Open XML, so neither Excel nor the ImportExcel module is need
 
 Columns:
 
-* **Identity:** `Environment`, `ServerInstance`, `Folder`, `Project`, `Package`, then `PackageLocation`, which
+* **Identity:** `Environment`, `SourceServerName`, `Folder`, `Project`, `Package`, then `PackageLocation`, which
   says where the scan found the package: `SSISDB` (project deployment model), `MSDB` (legacy package deployment
   model), `File system` (a `.dtsx` read with `-Path`) or `File system (.ispac)`.
 * **Scope:** `isMigrating` (right of `PackageLocation`) is a proposed default for the team to confirm. It is
@@ -141,7 +141,8 @@ Columns:
   it is still needed"), `LastExecutionStart`, `AvgDurationMin`, `AgentJobs`.
 * **For the team to fill in:** `BusinessOwner`, `Developer`, `Sprint`, `Status`, `Decision`, `Notes`.
 * **Provenance:** `SourceServerName` is the name the source SQL Server reports (`@@SERVERNAME`), read at run
-  time next to `ServerInstance`, the name the run connected with. `WorkbookCreatedAt` (last column) is when the
+  time, whatever alias or address the run connected with (that name stays in `package_assessment.csv` as
+  `ServerInstance`). `WorkbookCreatedAt` (last column) is when the
   file was written, in local time with the UTC offset. A generated backlog therefore holds real server names:
   keep it out of source control.
 

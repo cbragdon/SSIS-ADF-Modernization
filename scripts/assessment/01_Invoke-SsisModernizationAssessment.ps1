@@ -303,8 +303,8 @@ $PackageLocationLabel = [ordered]@{
     'Ispac'      = 'File system (.ispac)'
 }
 $PackageLocationMeaning = @{
-    'SSISDB'     = 'Deployed to the SSIS catalog (SSISDB database) on ServerInstance: project deployment model.'
-    'MSDB'       = 'Stored in the msdb database on ServerInstance: legacy package deployment model.'
+    'SSISDB'     = 'Deployed to the SSIS catalog (SSISDB database) on SourceServerName: project deployment model.'
+    'MSDB'       = 'Stored in the msdb database on SourceServerName: legacy package deployment model.'
     'FileSystem' = 'A .dtsx file read from disk (for example a source-control folder) with -Path.'
     'Ispac'      = 'Inside a built project file (.ispac) read from disk with -Path.'
 }
@@ -1632,7 +1632,8 @@ function Export-SprintBacklog {
        Returns the workbook paths. #>
     param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Backlog, [Parameter(Mandatory)][string]$Folder,
           [Parameter(Mandatory)][string]$WorkbookFolder, [Parameter(Mandatory)][string]$Stamp)
-    $columns = @('Environment', 'ServerInstance', 'SourceServerName', 'Folder', 'Project', 'Package', 'PackageLocation', 'isMigrating',
+    # ServerInstance (the name the run connected with) is left out: SourceServerName identifies the server.
+    $columns = @('Environment', 'SourceServerName', 'Folder', 'Project', 'Package', 'PackageLocation', 'isMigrating',
                  'TargetPlatform', 'Route', 'WorkType', 'ComplexityBand', 'ComplexityScore', 'BuildOrder', 'DependsOn', 'CalledBy', 'DecisionDrivers', 'AzureSsisIrFit',
                  'Removed2025', 'Usage', 'LastExecutionStart', 'AvgDurationMin', 'AgentJobs',
                  'BusinessOwner', 'Developer', 'Sprint', 'Status', 'Decision', 'Notes', 'WorkbookCreatedAt')
@@ -1683,7 +1684,7 @@ function Export-SprintBacklog {
     $legend.Add([PSCustomObject]@{ Item = 'isMigrating'; Value = 'No'; TargetPlatform = ''; WorkType = ''
         Meaning = 'Set by the team: the package will be retired, not migrated. The assessment never sets No on its own.' })
     $legend.Add([PSCustomObject]@{ Item = 'SourceServerName'; Value = ''; TargetPlatform = ''; WorkType = ''
-        Meaning = 'Name the source SQL Server reports for itself (@@SERVERNAME), read at run time; ServerInstance is the name the assessment connected with. (file) for packages read from disk.' })
+        Meaning = 'Name the source SQL Server reports for itself (@@SERVERNAME), read at run time, whatever alias or address the assessment connected with. (file) for packages read from disk.' })
     $legend.Add([PSCustomObject]@{ Item = 'WorkbookCreatedAt'; Value = ''; TargetPlatform = ''; WorkType = ''
         Meaning = 'Local date and time (with UTC offset) the CSV and workbook were written.' })
 

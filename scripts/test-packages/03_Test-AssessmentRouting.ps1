@@ -234,15 +234,16 @@ foreach ($ver in $runs.Keys) {
     $progressOk = $transcriptText -match '\] (Server|Folder) .+: started \d{4}-\d{2}-\d{2} ' -and $transcriptText -match '\] (Server|Folder) .+: completed \d{4}-\d{2}-\d{2} .*elapsed' -and $transcriptText.Contains('Assessment completed ')
     $results.Add([PSCustomObject]@{ Target = $ver; Check = 'Progress log'; Package = '-'; Expected = 'start and completion per source'
         Actual = $(if ($progressOk) { 'start and completion per source' } else { 'missing in transcript.log' }); Status = $(if ($progressOk) { 'PASS' } else { 'FAIL' }) })
-    # PackageLocation then isMigrating sit immediately right of Package, in the CSV and on every package sheet.
+    # PackageLocation then isMigrating sit immediately right of Package, in the CSV and on every package sheet,
+    # and ServerInstance is not a column (SourceServerName identifies the server).
     $wantCols = 'Package,PackageLocation,isMigrating'
     $placement = @{ 'CSV' = @(if (Test-Path -LiteralPath $backlogPath) { (Get-Content -LiteralPath $backlogPath -TotalCount 1) -split ',' | ForEach-Object { $_.Trim('"') } }) }
     foreach ($sn in @($sheetHeaders.Keys | Where-Object { $_ -notin @('Summary', 'Legend') })) { $placement[$sn] = $sheetHeaders[$sn] }
     $badPlacement = @(foreach ($k in @($placement.Keys | Sort-Object)) {
         $h = @($placement[$k]); $i = [array]::IndexOf($h, 'Package')
-        if ($i -lt 0 -or $i + 2 -ge $h.Count -or (($h[$i..($i + 2)]) -join ',') -ne $wantCols) { $k }
+        if ($i -lt 0 -or $i + 2 -ge $h.Count -or (($h[$i..($i + 2)]) -join ',') -ne $wantCols -or $h -contains 'ServerInstance') { $k }
     })
-    $results.Add([PSCustomObject]@{ Target = $ver; Check = 'Backlog columns'; Package = '-'; Expected = "$wantCols on CSV, Backlog and platform sheets"
+    $results.Add([PSCustomObject]@{ Target = $ver; Check = 'Backlog columns'; Package = '-'; Expected = "$wantCols on CSV, Backlog and platform sheets; no ServerInstance"
         Actual = $(if ($badPlacement.Count -eq 0 -and $placement.Count -ge 3) { "ok on $(@($placement.Keys | Sort-Object) -join ', ')" } else { "wrong on $($badPlacement -join ', ') (checked $($placement.Count))" })
         Status = $(if ($badPlacement.Count -eq 0 -and $placement.Count -ge 3) { 'PASS' } else { 'FAIL' }) })
     # Fixtures are loose .dtsx files plus one .ispac.
@@ -269,7 +270,7 @@ foreach ($ver in $runs.Keys) {
             Expected = 'sentences'; Actual = $(if ($ok) { 'sentences' } else { "bare: $($bare -join ' / ')" }); Status = $(if ($ok) { 'PASS' } else { 'FAIL' }) })
     }
     # Build order: within a project, every parent comes after each child it executes.
-    foreach ($grp in ($backlog | Group-Object ServerInstance, Folder, Project)) {
+    foreach ($grp in ($backlog | Group-Object SourceServerName, Folder, Project)) {
         $order = @{}; foreach ($b in $grp.Group) { $order[$b.Package] = [int]$b.BuildOrder }
         foreach ($b in $grp.Group) {
             foreach ($c in @($b.DependsOn -split '; ' | Where-Object { $_ -and $order.ContainsKey($_) })) {
@@ -298,7 +299,7 @@ foreach ($ver in $runs.Keys) {
                 Expected = $pair[1]; Actual = $a.($pair[0]); Status = $(if ($ok) { 'PASS' } else { 'FAIL' })
             })
         }
-        $bl = @($backlog | Where-Object { $_.Package -eq $a.Package -and $_.Project -eq $a.Project -and $_.Folder -eq $a.Folder -and $_.ServerInstance -eq $a.ServerInstance })
+        $bl = @($backlog | Where-Object { $_.Package -eq $a.Package -and $_.Project -eq $a.Project -and $_.Folder -eq $a.Folder })
         $platform = if ($bl.Count -gt 0) { $bl[0].TargetPlatform } else { 'missing' }
         $results.Add([PSCustomObject]@{
             Target = $ver; Check = 'TargetPlatform'; Package = "$($e.Project)\$($e.Package)"
