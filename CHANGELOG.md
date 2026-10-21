@@ -4,6 +4,10 @@ All notable changes to this repository. Dates are local (America/New_York).
 
 ## [Unreleased] — 2026-10-20
 
+### Added (2026-10-21) — assessment how-to
+- `scripts/assessment/README.md`: how to run the assessment in plain language, with a one-server and a
+  four-server example, every parameter, the workbook naming and tabs, the run folder and the console output.
+
 ### Added (2026-10-21) — one workbook per server, workbook folder, progress log
 - The sprint backlog workbook is now written once per source server as
   `<ServerName>_SSIS_Migration_Assessment_<yyyyMMdd_HHmmss>.xlsx` (the run-folder `sprint_backlog.xlsx` is
