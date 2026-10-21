@@ -33,12 +33,24 @@ jobs:
         shell: pwsh
         run: ./scripts/test-packages/03_Test-AssessmentRouting.ps1 -Mode Fixtures -OutputRoot "$env:RUNNER_TEMP/assessment"
 
+      - name: Run routing regression test (fixtures, Windows PowerShell 5.1)
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: .\scripts\test-packages\03_Test-AssessmentRouting.ps1 -Mode Fixtures -OutputRoot "$env:RUNNER_TEMP\assessment-ps51"
+
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: routing-test-report-${{ matrix.os }}
           path: ${{ runner.temp }}/assessment/routing_test_*.csv
+
+      - name: Upload sample sprint backlog (fixtures)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sprint-backlog-sample-${{ matrix.os }}
+          path: ${{ runner.temp }}/assessment/SSISASSESS_*/sprint_backlog.*
 
   # Data-parity harness self-test, one throwaway SQL Server container per version.
   # The last entry repeats 2025 with a case-sensitive UTF-8 server collation, because the scenario

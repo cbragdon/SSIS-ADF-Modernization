@@ -27,6 +27,10 @@
     * Every expected package was found (missing = FAIL unless the build manifest says it was skipped).
     * No secret test value appears in any assessment output file (password masking).
     * The assessment reported zero errors (errors.csv empty).
+    * Sprint backlog: sprint_backlog.csv has one row per assessed package, every expected package lands on
+      the platform its expected EffectiveRoute maps to, every parent's BuildOrder is higher than each
+      child's, and sprint_backlog.xlsx is a readable workbook whose Backlog sheet has the same row count.
+      The secret scan reads the XML inside the workbook too.
 
     Exit code 0 when everything passes, 1 otherwise, so the script can gate a pull request.
 
@@ -49,7 +53,7 @@
     .\03_Test-AssessmentRouting.ps1 -Mode Server -ServerInstance <DevSqlServer> -TrustServerCertificate
 
 .NOTES
-    Version : 1.2.0
+    Version : 1.3.0
     Compat  : Windows PowerShell 5.1 and PowerShell 7.x.
 #>
 [CmdletBinding()]
@@ -75,6 +79,32 @@ New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
 
 # Secret values planted in fixtures/test packages. None may appear in assessment output.
 $PlantedSecrets = @('Secret123', 'hunter2')
+
+# Platform each route must land on in sprint_backlog.csv. Kept independent of the assessment's own table on purpose.
+$ExpectedPlatform = @{
+    'AdfNative-Low' = 'ADF'; 'AdfNative-Medium' = 'ADF'; 'KeepOnSsisVm' = 'SSIS VM'
+    'Remediate2025' = 'SSIS VM after remediation'; 'ReviewRequired' = 'Undetermined'
+}
+Add-Type -AssemblyName System.IO.Compression
+
+function Read-XlsxParts {
+    <# Returns @{ partName = text } for every part of an .xlsx (a zip of XML). #>
+    param([string]$Path)
+    $out = @{}
+    $fs = [IO.File]::OpenRead($Path)
+    try {
+        $zip = New-Object System.IO.Compression.ZipArchive($fs, [IO.Compression.ZipArchiveMode]::Read)
+        try {
+            foreach ($en in $zip.Entries) {
+                $r = New-Object System.IO.StreamReader($en.Open())
+                try { $out[$en.FullName] = $r.ReadToEnd() } finally { $r.Dispose() }
+            }
+        }
+        finally { $zip.Dispose() }
+    }
+    finally { $fs.Dispose() }
+    $out
+}
 
 function Write-Result { param([string]$Status, [string]$Text)
     $c = @{ PASS = 'Green'; FAIL = 'Red'; SKIP = 'Yellow'; INFO = 'Gray' }[$Status]
@@ -132,10 +162,44 @@ foreach ($ver in $runs.Keys) {
 
     # Secret masking: scan every output file
     foreach ($f in Get-ChildItem -LiteralPath $run -File) {
-        $text = Get-Content -LiteralPath $f.FullName -Raw
+        # .xlsx is compressed: scan the XML parts, not the zip bytes.
+        $text = if ($f.Extension -eq '.xlsx') { (Read-XlsxParts -Path $f.FullName).Values -join "`n" } else { Get-Content -LiteralPath $f.FullName -Raw }
         foreach ($s in $PlantedSecrets) {
             if ($text -and $text.Contains($s)) {
                 $results.Add([PSCustomObject]@{ Target = $ver; Check = 'Secret masking'; Package = $f.Name; Expected = 'absent'; Actual = "found '$s'"; Status = 'FAIL' })
+            }
+        }
+    }
+
+    # Sprint backlog: one row per package, workbook readable and in step with the CSV.
+    $backlogPath = Join-Path $run 'sprint_backlog.csv'
+    $backlog = if (Test-Path -LiteralPath $backlogPath) { @(Import-Csv $backlogPath) } else { @() }
+    $allCount = $backlog.Count
+    if ($Mode -eq 'Server') { $backlog = @($backlog | Where-Object { $_.Folder -eq $FolderName -and $_.Project -eq $ProjectName }) }
+    $results.Add([PSCustomObject]@{ Target = $ver; Check = 'Backlog rows'; Package = '-'; Expected = "$($actual.Count)"; Actual = "$($backlog.Count)"
+        Status = $(if ((Test-Path -LiteralPath $backlogPath) -and $backlog.Count -eq $actual.Count) { 'PASS' } else { 'FAIL' }) })
+    $xlsxPath = Join-Path $run 'sprint_backlog.xlsx'
+    $xlsxRows = -1
+    if (Test-Path -LiteralPath $xlsxPath) {
+        try {
+            $xl = Read-XlsxParts -Path $xlsxPath
+            [xml]$wbXml = $xl['xl/workbook.xml']
+            $sheetNames = @($wbXml.workbook.sheets.sheet | ForEach-Object { $_.name })
+            $idx = [array]::IndexOf($sheetNames, 'Backlog')
+            if ($idx -ge 0) { [xml]$sheetXml = $xl["xl/worksheets/sheet$($idx + 1).xml"]; $xlsxRows = @($sheetXml.worksheet.sheetData.row).Count - 1 }
+        }
+        catch { $xlsxRows = -1 }
+    }
+    $results.Add([PSCustomObject]@{ Target = $ver; Check = 'Backlog workbook'; Package = '-'; Expected = "$allCount rows"; Actual = "$xlsxRows rows"
+        Status = $(if ($xlsxRows -eq $allCount) { 'PASS' } else { 'FAIL' }) })
+    # Build order: within a project, every parent comes after each child it executes.
+    foreach ($grp in ($backlog | Group-Object ServerInstance, Folder, Project)) {
+        $order = @{}; foreach ($b in $grp.Group) { $order[$b.Package] = [int]$b.BuildOrder }
+        foreach ($b in $grp.Group) {
+            foreach ($c in @($b.DependsOn -split '; ' | Where-Object { $_ -and $order.ContainsKey($_) })) {
+                $ok = [int]$b.BuildOrder -gt $order[$c]
+                $results.Add([PSCustomObject]@{ Target = $ver; Check = 'BuildOrder'; Package = "$($b.Project)\$($b.Package)"
+                    Expected = "> $c ($($order[$c]))"; Actual = $b.BuildOrder; Status = $(if ($ok) { 'PASS' } else { 'FAIL' }) })
             }
         }
     }
@@ -158,6 +222,13 @@ foreach ($ver in $runs.Keys) {
                 Expected = $pair[1]; Actual = $a.($pair[0]); Status = $(if ($ok) { 'PASS' } else { 'FAIL' })
             })
         }
+        $bl = @($backlog | Where-Object { $_.Package -eq $a.Package -and $_.Project -eq $a.Project -and $_.Folder -eq $a.Folder -and $_.ServerInstance -eq $a.ServerInstance })
+        $platform = if ($bl.Count -gt 0) { $bl[0].TargetPlatform } else { 'missing' }
+        $results.Add([PSCustomObject]@{
+            Target = $ver; Check = 'TargetPlatform'; Package = "$($e.Project)\$($e.Package)"
+            Expected = $ExpectedPlatform[$e.ExpectedEffectiveRoute]; Actual = $platform
+            Status = $(if ($platform -eq $ExpectedPlatform[$e.ExpectedEffectiveRoute]) { 'PASS' } else { 'FAIL' })
+        })
         # Optional reason checks: each token must appear in the package's RouteReasons (case-insensitive), or be absent when negated.
         if ($e.PSObject.Properties['ExpectedReasons'] -and $e.ExpectedReasons) {
             foreach ($token in ($e.ExpectedReasons -split '\|' | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
