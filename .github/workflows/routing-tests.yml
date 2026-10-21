@@ -1,5 +1,6 @@
 # Offline regression test for the SSIS assessment routing rules.
-# Runs on every push and pull request; needs no SQL Server (uses tests/fixtures).
+# Runs on every push and pull request. The routing job needs no SQL Server (uses tests/fixtures);
+# the parity job starts a disposable SQL Server container.
 name: Assessment routing tests
 
 on:
@@ -8,7 +9,12 @@ on:
 
 jobs:
   fixtures:
-    runs-on: windows-latest
+    name: routing fixtures (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -31,5 +37,61 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: routing-test-report
+          name: routing-test-report-${{ matrix.os }}
           path: ${{ runner.temp }}/assessment/routing_test_*.csv
+
+  # Data-parity harness self-test, one throwaway SQL Server container per version.
+  # The last entry repeats 2025 with a case-sensitive UTF-8 server collation, because the scenario
+  # output tables inherit the database collation.
+  parity-harness:
+    name: parity (SQL Server ${{ matrix.version }}${{ matrix.collation && format(' {0}', matrix.collation) || '' }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - version: '2017'
+          - version: '2019'
+          - version: '2022'
+          - version: '2025'
+          - version: '2025'
+            collation: Latin1_General_100_CS_AS_SC_UTF8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start SQL Server ${{ matrix.version }} container (random sa password, masked)
+        shell: bash
+        run: |
+          pw="Ci$(openssl rand -hex 12)!a1"
+          echo "::add-mask::$pw"
+          echo "PARITY_SA_PASSWORD=$pw" >> "$GITHUB_ENV"
+          collation=()
+          if [ -n "${{ matrix.collation }}" ]; then collation=(-e "MSSQL_COLLATION=${{ matrix.collation }}"); fi
+          docker run -d --name paritysql -e ACCEPT_EULA=Y -e "MSSQL_SA_PASSWORD=$pw" "${collation[@]}" -p 1433:1433 \
+            "mcr.microsoft.com/mssql/server:${{ matrix.version }}-latest"
+
+      - name: Wait for SQL Server and record its version
+        shell: pwsh
+        run: |
+          $cs = "Server=localhost;User ID=sa;Password=$env:PARITY_SA_PASSWORD;TrustServerCertificate=True;Encrypt=True;Connect Timeout=5"
+          for ($i = 0; $i -lt 90; $i++) {
+            try { $c = New-Object System.Data.SqlClient.SqlConnection $cs; $c.Open(); break } catch { Start-Sleep -Seconds 2 }
+          }
+          if ($c.State -ne 'Open') { docker logs paritysql; throw 'SQL Server did not start' }
+          $cmd = $c.CreateCommand()
+          $cmd.CommandText = "SELECT CONCAT(CONVERT(nvarchar(300), @@VERSION), N' | ', CONVERT(sysname, SERVERPROPERTY('Collation')))"
+          Write-Host (($cmd.ExecuteScalar()) -replace '\s+', ' ')
+          $c.Dispose()
+
+      - name: Run parity harness self-test
+        shell: pwsh
+        run: |
+          $cred = New-Object pscredential('sa', (ConvertTo-SecureString $env:PARITY_SA_PASSWORD -AsPlainText -Force))
+          ./scripts/parity/02_Test-ParityHarness.ps1 -ServerInstance localhost -SqlCredential $cred -TrustServerCertificate -WorkRoot "$env:RUNNER_TEMP/parity"
+
+      - name: Upload parity report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-selftest-${{ matrix.version }}${{ matrix.collation && format('-{0}', matrix.collation) || '' }}
+          path: ${{ runner.temp }}/parity/parity_results_*.csv

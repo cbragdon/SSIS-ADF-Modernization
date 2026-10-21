@@ -32,6 +32,7 @@ SSIS-ADF-Modernization/
 │  ├─ 01_decision-summary.md         ETL platform decision, routes, and how they map to options A-D
 │  ├─ 02_test-package-catalog.md     what each test package covers and its expected route
 │  ├─ 03_runbook-test-packages.md    build -> deploy -> test -> remove, with troubleshooting
+│  ├─ 04_parity-harness.md           data-parity harness: SSIS output vs rewrite output, G22-G30
 │  └─ plan-review/
 │     ├─ README.md                   review of the AI-assisted migration plan
 │     ├─ SSIS_ADF_Plan_Review.xlsx   issues, recommended pipeline, next steps (tracking workbook)
@@ -43,14 +44,20 @@ SSIS-ADF-Modernization/
 │     ├─ 01_New-SsisTestProject.ps1   builds the AssessmentTests SSIS project (.ispac)
 │     ├─ 02_Deploy-SsisTestProject.ps1 idempotent deploy to SSISDB (Dev only), -Remove to clean up
 │     └─ 03_Test-AssessmentRouting.ps1 regression test: actual vs expected routes
+│  └─ parity/
+│     ├─ 01_Invoke-ParityTest.ps1     runs SSIS and ADF for each case, compares outputs, logs results
+│     └─ 02_Test-ParityHarness.ps1    known-answer self-test of the harness (CI)
 ├─ sql/
-│  └─ 01_Create-SsisAssessmentTestDb.sql   disposable seed database for runnable test packages
+│  ├─ 01_Create-SsisAssessmentTestDb.sql   disposable seed database for runnable test packages
+│  ├─ 02_Create-ParityHarness.sql          parity schema: cases, runs, results, compare procedures
+│  └─ 03_Seed-ParityScenarios.sql          inputs and output tables for parity scenarios G22-G30
 ├─ test-packages/AssessmentTests/    generated .dtsx files (committed for review; regenerate, don't hand-edit)
 ├─ tests/
 │  ├─ fixtures/                      hand-written XML for cases a modern SSIS install cannot build
-│  └─ expected/                      expected routes - the single source of truth for the tests
+│  ├─ expected/                      expected routes - the single source of truth for the tests
+│  └─ parity/                        parity case catalogue, input files, harness self-test
 ├─ build/                            build output (.ispac, manifest) - git-ignored
-└─ .github/workflows/routing-tests.yml   CI: parse-check + offline routing test on every push
+└─ .github/workflows/routing-tests.yml   CI: parse-check, offline routing test, parity self-test
 ```
 
 ## Quick start
@@ -109,6 +116,7 @@ easier than the children it runs. `AzureSsisIrFit` reports Option B suitability 
 | `03_Test-AssessmentRouting.ps1` | Runs. Fixtures mode verified, including a deliberate failing case. |
 | `01_New-SsisTestProject.ps1` | v1.1.0. T01–T15 built and deployed on SQL Server 2025 (14 of 15; T15 needs the removed CDC/Oracle components). **T16–T27 are syntax-checked only, not yet compiled or run on SSIS.** Property names are set defensively and logged as warnings if they differ. |
 | `02_Deploy-SsisTestProject.ps1` | Guardrail verified. **Not yet run against SSISDB.** Use `-WhatIf` first. |
+| Parity harness (`sql/02_`, `sql/03_`, `scripts/parity/`) | v1.0.0. Comparison verified by the self-test (18 known-answer cases) on SQL Server 2017, 2019, 2022 and 2025; CI runs it against all four. The G22–G30 SSIS packages and ADF pipelines are not built yet, and `-ExecuteSsis` / `-ExecuteAdf` have not been run. See [docs/04_parity-harness.md](docs/04_parity-harness.md). |
 | Rule patterns not yet verified | Microsoft Connector for Oracle CreationName (`MSORA`/`ORACLE`), maintenance-task type names, SDS deprecation match. |
 | `-ExportRewriteSpec` | Planned — next building block (see plan review). |
 
