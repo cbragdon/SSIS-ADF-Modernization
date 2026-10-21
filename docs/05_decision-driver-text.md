@@ -2,7 +2,7 @@
 
 Before this change, the sprint backlog's `DecisionDrivers` column showed only the finding name (for example `Excel Destination`). Now each entry reads **finding name: plain-language explanation**, written for a reader who knows neither SSIS nor ADF. The engineer-facing note is unchanged and still appears in `evidence_items.csv` (column `Note`), now with the plain text beside it (column `Explanation`).
 
-The text lives in `$RuleExplanation` and `$ScriptDependencyExplanation` in `scripts/assessment/01_Invoke-SsisModernizationAssessment.ps1`. The script refuses to run if a rule has no entry, and the routing test fails if any backlog driver is not a full sentence.
+The text lives in `$RuleExplanation` and `$ScriptDependencyExplanation` in `scripts/assessment/01_Invoke-SsisModernizationAssessment.ps1`. A rule with no entry does not stop an assessment run. Its rows show the engineer note marked "(plain-language text missing)", and the run logs `RULE-EXPLANATION-MISSING`. The routing test fails on that warning, and also fails if any backlog driver is not a full sentence, so CI catches the gap in the pull request that adds the rule.
 
 | Finding (rule name) | Engineer note (unchanged, evidence_items.csv) | Plain-language explanation (new, shown in the backlog) |
 | --- | --- | --- |

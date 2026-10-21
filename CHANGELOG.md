@@ -12,8 +12,11 @@ All notable changes to this repository. Dates are local (America/New_York).
   unchanged engineer note, is in `docs/05_decision-driver-text.md`.
 - `evidence_items.csv` gains an `Explanation` column. The workbook Legend defines ADF, SSIS VM, SHIR,
   Copy activity, Mapping Data Flow and Azure-SSIS IR.
-- Guardrails: the assessment refuses to start if a rule has no explanation. The routing test fails if any
-  backlog driver is shorter than 60 characters or is not a full sentence (verified with a deliberately bare entry).
+- Guardrails: a missing explanation never stops an assessment run, because the routes are still correct.
+  The run logs `RULE-EXPLANATION-MISSING` naming the rule, and those rows show the engineer note marked
+  "(plain-language text missing)". The routing test fails on that warning, so CI catches the gap in the pull
+  request that adds the rule. The test also fails if any backlog driver is shorter than 60 characters or is
+  not a full sentence. Both checks were verified with deliberately broken entries.
 
 ### Added (2026-10-21) — sprint backlog export (assessment v2.3.0)
 - Every assessment run writes `sprint_backlog.csv` and `sprint_backlog.xlsx`. Each package gets one row

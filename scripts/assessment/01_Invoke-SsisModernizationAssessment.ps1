@@ -507,7 +507,7 @@ $RuleExplanationPattern = [ordered]@{
 }
 
 function Get-RuleExplanation {
-    <# Plain-language explanation for a rule (see $RuleExplanation). Falls back to the engineer-facing Note. #>
+    <# Plain-language explanation for a rule (see $RuleExplanation). Falls back to the engineer Note, marked as such. #>
     param([Parameter(Mandatory)]$Rule)
     if ($RuleExplanation.ContainsKey($Rule.Name)) { return $RuleExplanation[$Rule.Name] }
     $dep = $Rule.Name -replace '^Script dependency: '
@@ -516,7 +516,7 @@ function Get-RuleExplanation {
         $m = [regex]::Match($Rule.Name, $p)
         if ($m.Success) { return ($RuleExplanationPattern[$p] -f $m.Groups[1].Value) }
     }
-    $Rule.Note
+    '{0} (plain-language text missing)' -f $Rule.Note
 }
 
 # Script Task / Script Component code inventory. Each pattern is matched against the script source (comment lines
@@ -543,10 +543,14 @@ $ScriptDependencyRule = @(
 # Project file references that ship with .NET Framework or the SSIS runtime. Anything else is a custom assembly
 # that has to be in the GAC of every runtime (Azure-SSIS IR: custom setup).
 $FrameworkReferencePattern = '^(System|Microsoft\.SqlServer|Microsoft\.CSharp|Microsoft\.VisualBasic|mscorlib|Microsoft\.VisualStudio\.Tools\.Applications|Microsoft\.Office\.Interop)\b'
-# Guardrail: a rule added without an explanation would show a bare label in the backlog. Fail fast instead.
+# Completeness check. A rule without plain-language text does not stop the run (the routes are still right):
+# its rows show the engineer Note marked as missing text, and the warning below goes to the transcript.
+# The routing test fails on that warning, so the gap is caught in the pull request that adds the rule.
 $missing = @(@($RuleTable) + @($PropertyRule.Values) | Where-Object { -not $RuleExplanation.ContainsKey($_.Name) } | ForEach-Object { $_.Name })
 $missing += @($ScriptDependencyRule | Where-Object { -not $ScriptDependencyExplanation.ContainsKey($_.Name) } | ForEach-Object { "Script dependency: $($_.Name)" })
-if ($missing.Count -gt 0) { throw ('Rule(s) without a plain-language explanation in $RuleExplanation: {0}' -f ($missing -join ', ')) }
+if ($missing.Count -gt 0) {
+    Write-Log -Level WARN -Message ('RULE-EXPLANATION-MISSING: no plain-language text for {0}. The backlog shows the engineer note for these; add them to $RuleExplanation / $ScriptDependencyExplanation.' -f ($missing -join ', '))
+}
 $SqlTaskNs = 'www.microsoft.com/sqlserver/dts/tasks/sqltask'
 # DTSConfigurationType (Microsoft.SqlServer.Dts.Runtime). I* = indirect: the location is held in an environment variable.
 $ConfigurationTypeName = @{

@@ -31,7 +31,8 @@
       the platform its expected EffectiveRoute maps to, every parent's BuildOrder is higher than each
       child's, and sprint_backlog.xlsx is a readable workbook whose Backlog sheet has the same row count.
       The secret scan reads the XML inside the workbook too. Every DecisionDrivers entry is a full sentence
-      that explains the finding, never a bare component name.
+      that explains the finding, never a bare component name, and no rule is missing its plain-language text
+      (the assessment's RULE-EXPLANATION-MISSING warning in transcript.log).
 
     Exit code 0 when everything passes, 1 otherwise, so the script can gate a pull request.
 
@@ -193,6 +194,12 @@ foreach ($ver in $runs.Keys) {
     }
     $results.Add([PSCustomObject]@{ Target = $ver; Check = 'Backlog workbook'; Package = '-'; Expected = "$allCount rows"; Actual = "$xlsxRows rows"
         Status = $(if ($xlsxRows -eq $allCount) { 'PASS' } else { 'FAIL' }) })
+    # Every rule needs plain-language text. The assessment logs RULE-EXPLANATION-MISSING (and keeps running)
+    # when one is missing; here that fails the build, so the gap never reaches a business reader.
+    $transcript = Join-Path $run 'transcript.log'
+    $missingText = @(if (Test-Path -LiteralPath $transcript) { Select-String -LiteralPath $transcript -Pattern 'RULE-EXPLANATION-MISSING: no plain-language text for (.*?)\. The backlog' | ForEach-Object { $_.Matches[0].Groups[1].Value } | Select-Object -First 1 })
+    $results.Add([PSCustomObject]@{ Target = $ver; Check = 'RuleExplanations'; Package = '-'; Expected = 'all rules'
+        Actual = $(if ($missingText.Count -eq 0) { 'all rules' } else { "missing $($missingText[0])" }); Status = $(if ($missingText.Count -eq 0) { 'PASS' } else { 'FAIL' }) })
     # Decision drivers must explain, not just name: every ' | '-separated driver is a full sentence (at least
     # 60 characters, ending in a full stop). A bare label such as 'Excel Destination' fails.
     foreach ($b in $backlog) {
