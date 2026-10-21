@@ -190,11 +190,15 @@ try {
     if (-not $loaded) { throw 'No SSIS runtime assemblies (Microsoft.SqlServer.ManagedDTS 13-17) found in the GAC. Install the Integration Services feature or SSDT with SSIS.' }
     # Preload the managed task and connection assemblies. Inside powershell.exe the SSIS runtime
     # cannot always bind them on demand (0x80131401 "Cannot create a task from XML", unknown SMTP
-    # connection type); once loaded into the AppDomain they resolve.
-    foreach ($n in 'SQLTask', 'ScriptTask', 'FileSystemTask', 'ExpressionTask', 'SendMailTask', 'TxScript',
-                   'FtpTask', 'ManagedConnections', 'VSTAScriptingLib') {
-        try { [void][Reflection.Assembly]::Load("Microsoft.SqlServer.$n, Version=$($loaded.Version).0.0.0, Culture=neutral, PublicKeyToken=89845dcd8080cc91") }
-        catch { Write-Log -Level WARN -Message "Could not preload Microsoft.SqlServer.$n" }
+    # connection type, "different grant set"); once loaded into the AppDomain they resolve. Every
+    # installed task, enumerator and managed-connection assembly of this version is preloaded.
+    $gac = Join-Path $env:WINDIR 'Microsoft.NET\assembly\GAC_MSIL'
+    $preload = @(Get-ChildItem -LiteralPath $gac -Directory -Filter 'Microsoft.SqlServer.*' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match 'Task|Enumerator|ManagedConnections|TxScript|VSTAScriptingLib' -and $_.Name -notmatch '\.resources$|UI$|Design' } |
+        Select-Object -ExpandProperty Name)
+    foreach ($n in $preload) {
+        try { [void][Reflection.Assembly]::Load("$n, Version=$($loaded.Version).0.0.0, Culture=neutral, PublicKeyToken=89845dcd8080cc91") }
+        catch { }   # not every assembly exists for every version
     }
     $verName = @{ '13' = '2016'; '14' = '2017'; '15' = '2019'; '16' = '2022'; '17' = '2025' }[$loaded.Version]
     Write-Log -Level OK -Message "Loaded SSIS assemblies version $($loaded.Version).0 (SQL Server $verName)"
