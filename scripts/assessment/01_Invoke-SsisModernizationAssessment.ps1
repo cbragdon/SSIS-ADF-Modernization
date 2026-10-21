@@ -76,6 +76,9 @@
 
 .PARAMETER ServerInstance
     One or more SQL Server instances hosting SSISDB / msdb (e.g. <SsisProdServer>, HOST\INSTANCE, HOST,1433).
+    Each server gets its own workbook. A comma-separated string also works (powershell.exe -File passes
+    "-ServerInstance A,B" as one string); a number after a comma is read as a port (HOST,1433). A name that
+    turns out to be a server already assessed in the run (same @@SERVERNAME) is skipped with a warning.
 
 .PARAMETER Environment
     Label written to every output row for -ServerInstance targets (Development, Testing, Staging, Production).
@@ -1196,6 +1199,12 @@ SELECT CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(128)) AS ProductVersion
 "@
     }
     catch { Add-AssessmentError -Server $Server -Scope 'Connect' -Object $Server -Message $_.Exception.Message; return }
+    # Two names for one server (alias, IP, '.', listener) would list every package twice: assess it once.
+    $already = @($SourceServerNames.Keys | Where-Object { $SourceServerNames[$_] -eq [string]$info.ServerName })
+    if ($already.Count -gt 0) {
+        Write-Log -Level WARN -Message ("  {0} is the same server ({1}) as {2}, already assessed in this run; skipped so its packages are not listed twice." -f $Server, $info.ServerName, $already[0])
+        return
+    }
     $SourceServerNames[$Server] = [string]$info.ServerName
     Write-Log -Message ("  SQL Server {0} ({1}), SSISDB present: {2}" -f $info.ProductVersion, $info.Edition, [bool]$info.HasSsisdb)
     if ($info.MajorVersion -lt 13) { Write-Log -Level WARN -Message '  Source is older than SQL Server 2016; outside the validated range but will be attempted.' }
@@ -1717,7 +1726,13 @@ try {
 
     # Build the server work list (explicit servers + server list file).
     $targets = New-Object System.Collections.Generic.List[object]
-    foreach ($s in @($ServerInstance | Where-Object { $_ })) {
+    # 'powershell.exe -File' passes "-ServerInstance A,B" as one string: split it here. An all-digit piece is a
+    # port and stays with the name before it, so HOST,1433 remains one server.
+    $serverNames = New-Object System.Collections.Generic.List[string]
+    foreach ($piece in @($ServerInstance | Where-Object { $_ } | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
+        if ($piece -match '^\d+$' -and $serverNames.Count -gt 0) { $serverNames[$serverNames.Count - 1] += ',' + $piece } else { $serverNames.Add($piece) }
+    }
+    foreach ($s in $serverNames) {
         $targets.Add([PSCustomObject]@{ ServerInstance = $s; Environment = $Environment; TargetSsisVersion = $TargetSsisVersion })
     }
     if ($ServerListPath) {

@@ -13,6 +13,9 @@ All notable changes to this repository. Dates are local (America/New_York).
   is created and the creation logged.
 - Each server (and package folder) is logged with its start and completion time, elapsed time, package and
   error counts, followed by the run's start, completion and workbook paths. Assessment v2.5.0.
+- `-ServerInstance "A,B"` from `powershell.exe -File` (one string) is split into servers; `HOST,1433` stays one.
+  Two names for the same server (same `@@SERVERNAME`, e.g. `localhost` and `.`) are assessed once, with a
+  warning, so a workbook never lists a package twice.
 - Routing test v1.5.0 writes workbooks to a new folder each run and checks that the folder was created and
   logged, that there is one correctly named workbook per server holding every CSV row, and that the
   progress lines are in `transcript.log`. The CI sample artifact now carries the workbook.
