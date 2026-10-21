@@ -116,7 +116,7 @@ easier than the children it runs. `AzureSsisIrFit` reports Option B suitability 
 | `03_Test-AssessmentRouting.ps1` | Runs. Fixtures mode verified, including a deliberate failing case. |
 | `01_New-SsisTestProject.ps1` | v1.1.0. T01–T15 built and deployed on SQL Server 2025 (14 of 15; T15 needs the removed CDC/Oracle components). **T16–T27 are syntax-checked only, not yet compiled or run on SSIS.** Property names are set defensively and logged as warnings if they differ. |
 | `02_Deploy-SsisTestProject.ps1` | Guardrail verified. **Not yet run against SSISDB.** Use `-WhatIf` first. |
-| Parity harness (`sql/02_`, `sql/03_`, `scripts/parity/`) | v1.0.0. Comparison verified by the self-test (18 known-answer cases) on SQL Server 2022; runs in CI. The G22–G30 SSIS packages and ADF pipelines are not built yet, and `-ExecuteSsis` / `-ExecuteAdf` have not been run. See [docs/04_parity-harness.md](docs/04_parity-harness.md). |
+| Parity harness (`sql/02_`, `sql/03_`, `scripts/parity/`) | v1.0.0. Comparison verified by the self-test (18 known-answer cases) on SQL Server 2017, 2019, 2022 and 2025; CI runs it against all four. The G22–G30 SSIS packages and ADF pipelines are not built yet, and `-ExecuteSsis` / `-ExecuteAdf` have not been run. See [docs/04_parity-harness.md](docs/04_parity-harness.md). |
 | Rule patterns not yet verified | Microsoft Connector for Oracle CreationName (`MSORA`/`ORACLE`), maintenance-task type names, SDS deprecation match. |
 | `-ExportRewriteSpec` | Planned — next building block (see plan review). |
 

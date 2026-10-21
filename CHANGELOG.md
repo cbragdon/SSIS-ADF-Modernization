@@ -4,6 +4,16 @@ All notable changes to this repository. Dates are local (America/New_York).
 
 ## [Unreleased] — 2026-10-20
 
+### Added (2026-10-21) — CI version matrix
+- The `parity-harness` CI job is a matrix: SQL Server 2017, 2019, 2022 and 2025 containers, plus 2025
+  with the server collation `Latin1_General_100_CS_AS_SC_UTF8`. The `sa` password is generated per job and
+  masked. Each job logs `@@VERSION` and uploads its report as `parity-selftest-<version>`.
+- The offline routing test (`fixtures` job) runs on `windows-latest` and `ubuntu-latest`.
+
+### Verified (2026-10-21) — version matrix
+- Parity self-test 18/18 on 2017 (14.0.3560.2), 2019 (15.0.4500.2), 2022 (16.0.4305.5) and 2025
+  (17.0.5015.4, both collations). Routing fixtures 67/67 on PowerShell 7 on Linux.
+
 ### Added (2026-10-20) — data-parity harness v1.0.0 (Phase C, gaps G22–G30)
 - `sql/02_Create-ParityHarness.sql`: `parity` schema with the case catalogue, runs, results, file
   manifests and run outcomes, and three compare procedures. Tables are compared as binary-exact
@@ -16,7 +26,7 @@ All notable changes to this repository. Dates are local (America/New_York).
 - `scripts/parity/01_Invoke-ParityTest.ps1`: loads the catalogue, optionally runs the SSIS package
   (SSISDB, synchronized) and the ADF pipeline (REST), compares, writes a CSV report; exit code gates.
 - `scripts/parity/02_Test-ParityHarness.ps1` and `tests/parity/selftest/`: 18 known-answer cases.
-- CI: a `parity-harness` job runs the self-test against a SQL Server 2022 container.
+- CI: a `parity-harness` job runs the self-test against a SQL Server container (see the 2026-10-21 matrix).
 
 ### Verified (2026-10-20) — parity harness
 - Self-test 18/18 on SQL Server 2022 (Linux container). It catches differences in case only, trailing

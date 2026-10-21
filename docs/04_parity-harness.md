@@ -79,6 +79,31 @@ G22-LOOKUP  FAIL  ssis=7 candidate=8 onlySsis=3 onlyCandidate=4
   only in candidate: p-100 Bikes, 'P-100 ' Bikes, P-300 Clothing, P-200 Accessories (second duplicate)
 ```
 
+## Tested SQL Server versions
+
+The self-test (`02_Test-ParityHarness.ps1`, 18 known-answer cases) runs in CI against every SQL Server
+version that has a Linux container image. All five configurations returned 18/18 on 2026-10-21:
+
+| Version | Build | Update | Server collation | DB compat |
+| --- | --- | --- | --- | --- |
+| SQL Server 2017 | 14.0.3560.2 | RTM-CU31-GDR | SQL_Latin1_General_CP1_CI_AS | 140 |
+| SQL Server 2019 | 15.0.4500.2 | RTM-CU32-GDR | SQL_Latin1_General_CP1_CI_AS | 150 |
+| SQL Server 2022 | 16.0.4305.5 | RTM-CU27-GDR | SQL_Latin1_General_CP1_CI_AS | 160 |
+| SQL Server 2025 | 17.0.5015.4 | RTM-CU9-GDR | SQL_Latin1_General_CP1_CI_AS | 170 |
+| SQL Server 2025 | 17.0.5015.4 | RTM-CU9-GDR | Latin1_General_100_CS_AS_SC_UTF8 | 170 |
+
+Notes:
+
+* The images are `mcr.microsoft.com/mssql/server:<version>-latest` (Developer edition), so the build moves
+  as Microsoft publishes CUs. Each CI job prints `@@VERSION` and the server collation into its log.
+* The UTF-8, case-sensitive row proves the compare does not lean on the server default collation.
+* Run one container per host at a time. Four concurrent instances on one small host made the 2025 engine
+  exit with errno 11 (EAGAIN); in CI each version is its own job on its own runner.
+* SQL Server 2016 SP1 is the documented minimum (`CREATE OR ALTER`, `STRING_SPLIT`, `FOR JSON`) but has no
+  Linux image, so it is not in the matrix. Windows instances are tested by hand (step 2 of the runbook).
+* The routing tests do not use SQL Server. Fixture mode runs on `windows-latest` and `ubuntu-latest`;
+  server mode needs SSISDB, which exists only on Windows.
+
 ## Runbook
 
 ```powershell
