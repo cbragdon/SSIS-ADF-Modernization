@@ -40,7 +40,8 @@ SSIS-ADF-Modernization/
 │     └─ source/                     the plan and blueprint that were reviewed
 ├─ scripts/
 │  ├─ assessment/
-│  │  └─ 01_Invoke-SsisModernizationAssessment.ps1   read-only package assessment and routing
+│  │  ├─ 01_Invoke-SsisModernizationAssessment.ps1   read-only package assessment and routing
+│  │  └─ README.md                                     how to run it: parameters, examples, outputs
 │  └─ test-packages/
 │     ├─ 01_New-SsisTestProject.ps1   builds the AssessmentTests or (-Suite) ParityTests SSIS project
 │     ├─ 02_Deploy-SsisTestProject.ps1 idempotent deploy to SSISDB (Dev only), -Remove to clean up
@@ -181,7 +182,7 @@ does not carry the planning columns forward.
 
 | Component | State |
 | --- | --- |
-| `01_Invoke-SsisModernizationAssessment.ps1` | v2.3.0. Runs. Offline fixtures pass (134/134 checks, including route-reason, sprint-backlog and plain-language-driver checks). Routes are unchanged by v2.3.0. SSISDB/msdb/Agent queries not yet run against a live server. The sprint workbook was validated with openpyxl, not yet opened in desktop Excel. |
+| `01_Invoke-SsisModernizationAssessment.ps1` | v2.5.0. Offline fixtures pass (182/182 checks). Server mode verified against a local SQL Server 2025 SSISDB (152 passed, 1 skipped: T15 cannot be built on 2025); the workbook opens in desktop Excel. msdb and Agent queries not yet run against a live server. How to run it: [scripts/assessment/README.md](scripts/assessment/README.md). |
 | `03_Test-AssessmentRouting.ps1` | Runs. Fixtures mode verified, including a deliberate failing case. |
 | `01_New-SsisTestProject.ps1` | v1.1.0. T01–T15 built and deployed on SQL Server 2025 (14 of 15; T15 needs the removed CDC/Oracle components). **T16–T27 are syntax-checked only, not yet compiled or run on SSIS.** Property names are set defensively and logged as warnings if they differ. |
 | `02_Deploy-SsisTestProject.ps1` | Guardrail verified. **Not yet run against SSISDB.** Use `-WhatIf` first. |
