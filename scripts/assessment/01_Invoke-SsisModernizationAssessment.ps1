@@ -395,6 +395,130 @@ $PropertyRule = @{
     FullResultSet = New-Rule Task '' 'Execute SQL full result set' AdfNative-Low '' Compatible 'ResultSet=Full result set into an Object variable. ADF Lookup returns at most 5,000 rows / 4 MB; larger sets need a staging table or a ForEach over a query.'
     FixedWidth    = New-Rule Connection '' 'Fixed-width / ragged-right flat file' AdfNative-Medium '' Compatible 'ADF delimited text has no fixed-width format: parse with a Mapping Data Flow (substring derived columns) or load whole lines and split in SQL.'
 }
+# Plain-language explanation for every rule, shown as DecisionDrivers in the sprint backlog and as Explanation in
+# evidence_items.csv. Written for a reader who knows neither SSIS nor ADF internals: what the package does, and
+# why that puts it on its platform. Note (above) stays the engineer-facing detail. Keyed by rule Name; every
+# static rule must have an entry (checked at start-up). Rules named at run time match $RuleExplanationPattern.
+$Shir = 'a Self-hosted Integration Runtime (SHIR, see Legend)'
+$RuleExplanation = @{
+    # Removed or discontinued in SQL Server 2025
+    'Hadoop Hive Task'               = 'Runs a Hive job on a Hadoop cluster. Microsoft removed the Hadoop tasks from SQL Server 2025 SSIS, so this step must be replaced (for example by a Databricks or HDInsight activity in ADF) before the package can run on a SQL Server 2025 host.'
+    'Hadoop Pig Task'                = 'Runs a Pig job on a Hadoop cluster. Microsoft removed the Hadoop tasks from SQL Server 2025 SSIS, so this step must be replaced (for example by a Databricks or HDInsight activity in ADF) before the package can run on a SQL Server 2025 host.'
+    'Hadoop File System Task'        = 'Copies files to or from a Hadoop cluster. Microsoft removed the Hadoop tasks from SQL Server 2025 SSIS, so this step must be replaced (for example by an ADF Copy activity) before the package can run on a SQL Server 2025 host.'
+    'Foreach HDFS File Enumerator'   = 'Loops over files stored on a Hadoop cluster. Microsoft removed the Hadoop components from SQL Server 2025 SSIS, so the loop must be rebuilt before the package can run on a SQL Server 2025 host.'
+    'Hadoop'                         = 'Connects to a Hadoop cluster. Microsoft removed the Hadoop components from SQL Server 2025 SSIS, so the connection must be replaced before the package can run on a SQL Server 2025 host.'
+    'CDC Control Task (Attunity)'    = 'Manages change data capture (reading only the rows that changed) with the Attunity CDC components. Microsoft removed them from SQL Server 2025 SSIS, so the change-capture logic must be rebuilt, or the package kept on a SQL Server 2022 host.'
+    'CDC Source (Attunity)'          = 'Reads only the rows that changed (change data capture) with the Attunity CDC components. Microsoft removed them from SQL Server 2025 SSIS, so the change-capture logic must be rebuilt, or the package kept on a SQL Server 2022 host.'
+    'CDC Splitter (Attunity)'        = 'Splits captured changes into inserts, updates and deletes with the Attunity CDC components. Microsoft removed them from SQL Server 2025 SSIS, so the change-capture logic must be rebuilt, or the package kept on a SQL Server 2022 host.'
+    'Oracle Source/Destination (Microsoft Connector for Oracle)' = "Reads or writes Oracle through the Microsoft Connector for Oracle, which Microsoft removed from SQL Server 2025 SSIS. The replacement is ADF's own Oracle connector, running through $Shir."
+    'Oracle (Microsoft Connector for Oracle)' = "Connects to Oracle through the Microsoft Connector for Oracle, which Microsoft removed from SQL Server 2025 SSIS. The replacement is ADF's own Oracle connector, running through $Shir."
+    'DQS Cleansing'                  = 'Cleans data with Data Quality Services (DQS). DQS is discontinued in SQL Server 2025, so there is no DQS server to call and the cleansing rules must be rebuilt elsewhere.'
+    'DQS'                            = 'Connects to Data Quality Services (DQS). DQS is discontinued in SQL Server 2025, so there is no DQS server to call and the cleansing rules must be rebuilt elsewhere.'
+    # Database administration rather than data movement
+    'Maintenance Plan Task'          = 'Runs a SQL Server maintenance plan (backups, index or statistics upkeep). That is database administration, not data movement, and ADF has no equivalent. It belongs in DBA automation such as SQL Agent. Its connection type is also deprecated in SQL Server 2025.'
+    'DBA Maintenance Task'           = 'Runs database upkeep (backup, integrity check, index or statistics maintenance). That is database administration, not data movement, and ADF has no equivalent. It belongs in DBA automation such as SQL Agent.'
+    'Transfer Task'                  = 'Copies server objects (logins, jobs, stored procedures, whole databases) between SQL Servers. ADF does not do this kind of administration, so the package stays on the SSIS VM or the step moves to DBA tooling.'
+    'Foreach SMO Enumerator'         = 'Loops over SQL Server objects (databases, tables) using server-management APIs. ADF has no equivalent, and this connection type is deprecated in SQL Server 2025, so the package stays on the SSIS VM.'
+    # Needs the SSIS runtime
+    'Script Task'                    = 'Runs custom C# or VB.NET code written inside the package. ADF cannot run that code, so the package stays on the SSIS VM unless the code is rewritten (for example as an Azure Function).'
+    'Script Component'               = 'Runs custom C# or VB.NET code on every row inside the data flow. ADF cannot run that code, so the package stays on the SSIS VM unless the logic is rewritten.'
+    'Execute Process Task'           = 'Starts a program or batch file on the server. ADF has no server of its own to run it on, so the package stays on the SSIS VM where the program is installed.'
+    'WMI Task'                       = 'Reads Windows system information or waits for Windows events on the server (WMI). ADF has no Windows host to query, so the package stays on the SSIS VM.'
+    'Message Queue Task'             = 'Sends or receives messages through Microsoft Message Queuing (MSMQ), a Windows server feature that ADF cannot use, so the package stays on the SSIS VM.'
+    'Analysis Services Task'         = 'Processes or changes an Analysis Services (SSAS) cube or model. ADF has no built-in activity for this, so the package stays on the SSIS VM (or calls the model through a REST API if it moves to Azure Analysis Services).'
+    'Data Profiling Task'            = 'Produces data-profile statistics (null counts, value patterns, key candidates). ADF has no equivalent activity, so the package stays on the SSIS VM.'
+    'XML Task'                       = 'Transforms or queries XML files (XSLT or XPath). ADF cannot run XSLT, so the package stays on the SSIS VM.'
+    'Excel Destination'              = 'Writes rows into an Excel workbook. ADF can read Excel files but cannot create or write them (Excel is not a supported ADF destination), so the package stays on the SSIS VM, which also needs the Microsoft Access Database Engine (ACE) driver installed. To leave SSIS, write CSV or Parquet instead, or have ADF call custom code that writes the workbook.'
+    'Fuzzy Lookup/Grouping'          = 'Matches or groups records that are similar but not identical (fuzzy matching). ADF has no equivalent, so the package stays on the SSIS VM.'
+    'Term Extraction/Lookup'         = 'Pulls key terms out of free text or matches text against a term list. ADF has no equivalent, so the package stays on the SSIS VM.'
+    'Data Mining Query'              = 'Runs a prediction query against an Analysis Services data-mining model. ADF has no equivalent, so the package stays on the SSIS VM.'
+    'Export/Import Column'           = 'Writes column values (such as documents or images) out to individual files, or loads files into a column, one row at a time. ADF has no equivalent, so the package stays on the SSIS VM.'
+    'Balanced Data Distributor'      = 'Splits the data flow across parallel threads for speed. ADF manages parallelism itself and has no such component, so the package stays on the SSIS VM until the flow is redesigned.'
+    'Recordset/DataReader Destination' = 'Keeps query results in memory so later steps in the same package can loop over them. ADF has no in-memory result set of this kind, so the package stays on the SSIS VM.'
+    'Analysis Services'              = 'Connects to Analysis Services (SSAS). ADF has no Analysis Services connector, so the package stays on the SSIS VM.'
+    'SMO/SQL Mobile/WMI/MSMQ'        = 'Connects to a server-administration or Windows feature (SMO, SQL Server Mobile, WMI or MSMQ) that ADF cannot use, so the package stays on the SSIS VM.'
+    # ADF can do it, with design work
+    'Web Service Task'               = "Calls a SOAP web service. ADF's Web activity can make the call, but building the request and reading the response has to be redone."
+    'Bulk Insert Task'               = "Loads a file into a SQL table. ADF's Copy activity does this, but the file must be reachable from ADF: in Azure Storage, or through $Shir."
+    'File System Task'               = "Copies, moves or deletes files on a file share or local drive. ADF can do this only through $Shir, or after the files move to Azure Storage."
+    'FTP Task'                       = 'Sends or receives files over FTP. ADF has FTP and SFTP connectors, so this maps directly, with some redesign of the file steps.'
+    'Send Mail Task'                 = 'Sends an email. ADF cannot send email itself, so it calls a Logic App (or Microsoft Graph) from a Web activity.'
+    'Foreach File Enumerator'        = "Loops over the files in a folder. ADF does this with Get Metadata plus ForEach, but a file share is reachable only through $Shir."
+    'Foreach ADO/Item/Variable/NodeList Enumerator' = 'Loops over rows from a query, a fixed list or a variable. ADF does this with a Lookup activity feeding a ForEach, which needs some redesign.'
+    'OLE DB Command'                 = 'Runs a SQL statement once for every row, which is slow at volume. ADF has no row-by-row equivalent: rebuild it as a staging table plus one set-based stored procedure.'
+    'Slowly Changing Dimension'      = 'Keeps history in a dimension table using the SSIS wizard component. ADF has no such wizard: rebuild it with a Mapping Data Flow or a set-based SQL MERGE.'
+    'Transformation (Data Flow mappable)' = 'Changes data on the way through (lookups, joins, sorts, aggregates, calculated columns). ADF can do this with a Mapping Data Flow, or the logic can move into SQL, so it is a rebuild rather than a simple copy.'
+    'Raw File Source/Destination'    = 'Stages data in the SSIS-only Raw file format, which ADF cannot read or write. Replace the staging step with Parquet files in Azure Storage or a staging table.'
+    'Excel Source'                   = "Reads an Excel workbook. ADF can read Excel (choosing the worksheet and cell range), but the file must be reachable from ADF: in Azure Storage, or through $Shir."
+    'Access/Excel via ACE/Jet OLE DB' = "Connects to an Access database or Excel file through the Microsoft Access Database Engine (ACE/Jet) driver. ADF can reach it only through $Shir on a server with that driver installed. Writing to Excel this way keeps the package on the SSIS VM (see Excel Destination)."
+    'Excel'                          = 'Connects to an Excel workbook. ADF can read Excel files but cannot write them, so any step that writes to this connection keeps the package on the SSIS VM.'
+    'Oracle via OLE DB'              = "Connects to Oracle through an Oracle OLE DB driver. ADF uses its own Oracle connector instead, running through $Shir, so the connection must be rebuilt."
+    'File'                           = "Reads or writes files on a file share or local drive. ADF can reach a file share only through $Shir, or after the files move to Azure Storage."
+    'FTP'                            = 'Connects to an FTP or SFTP server. ADF has FTP and SFTP connectors.'
+    'SMTP/HTTP'                      = 'Sends email or calls a web address. ADF does this from a Web activity, with a Logic App for email.'
+    'Cache'                          = 'Holds lookup data in memory for the data flow. ADF Mapping Data Flows have a cached lookup that does the same job, so it needs rebuilding.'
+    'Distributed transaction (TransactionOption=Required)' = 'Wraps several steps in one transaction so they all succeed or all roll back (MSDTC). ADF has no transactions across steps, so the steps must be redesigned to be safe to re-run, or combined into one stored procedure.'
+    'Checkpoint restart'             = 'Restarts from the step that failed, using a checkpoint file. ADF can rerun from the failed activity but has no checkpoint file, so the restart behaviour must be re-tested after the rewrite.'
+    'Error-row redirection'          = "Sends bad rows to a separate error output instead of failing. ADF's Copy activity can only skip and log bad rows, so keeping them in a table needs a Mapping Data Flow or a stage-and-validate step."
+    'Local drive / UNC file path'    = "Reads or writes a file on a server drive or network share (C:\... or \\server\share). ADF can reach it only through $Shir, or after the file moves to Azure Storage."
+    'Local drive / UNC file path (set by expression)' = "Reads or writes a file on a server drive or network share, with the path built while the package runs. ADF can reach it only through $Shir, or after the file moves to Azure Storage."
+    'SQL statement from variable / file (opaque SQL)' = 'The SQL that runs is held in a variable or a separate file, not in the package, so the scan could not see it. Collect that SQL and confirm it is plain SQL before mapping it to an ADF Script or Stored Procedure activity.'
+    'Fixed-width / ragged-right flat file' = 'Reads a text file whose columns are set by character position instead of commas. ADF text files need a delimiter, so the columns must be split in a Mapping Data Flow or in SQL.'
+    'Windows authentication'         = "Logs in to the database with a Windows account. ADF can use Windows logins only through $Shir, unless the connection switches to SQL or Microsoft Entra authentication."
+    # Direct ADF equivalent
+    'Data Flow Task'                 = "Moves data from a source to a destination. On its own that is an ADF Copy activity; the steps inside it decide the final route."
+    'Execute SQL Task'               = "Runs a SQL statement or stored procedure. ADF's Script or Stored Procedure activity does the same."
+    'Execute Package Task'           = "Runs another package. ADF's Execute Pipeline activity does the same; the child package's own route counts toward this one."
+    'Expression Task'                = "Sets a variable from a calculation. ADF's Set Variable activity does the same."
+    'Azure Feature Pack Task'        = 'Works with Azure storage or Azure services. ADF has native connectors for these.'
+    'Azure Feature Pack'             = 'Connects to Azure storage or Azure services. ADF has native connectors for these.'
+    'Sequence / For Loop Container'  = 'Groups steps, or repeats them in a counted loop. ADF has equivalent activities.'
+    'Foreach Loop Container'         = "Repeats steps for each item in a list. ADF's ForEach activity does the same; what it loops over is assessed separately."
+    'Data Conversion / Row Count'    = "Converts data types or counts rows. ADF's Copy activity handles both."
+    'Source/Destination adapter'     = "Reads from or writes to a database or text file. ADF's Copy activity does the same."
+    'Relational (OLE DB / ADO.NET / ODBC)' = 'Connects to a relational database. ADF has a matching connection (linked service).'
+    'Execute SQL full result set'    = "Loads a whole query result into memory for later steps. ADF's Lookup activity returns at most 5,000 rows, so larger results need a staging table."
+    'Logging-only connection'        = 'Used only to write the package log, not to move data, so it does not affect the route.'
+}
+# What each Script Task / Script Component dependency means for the move (names from $ScriptDependencyRule).
+$ScriptDependencyExplanation = @{
+    'ADO.NET SqlClient'            = 'The custom code queries SQL Server directly. Any rewrite must repeat those queries, and the connection details must be moved into configuration.'
+    'OLE DB (System.Data.OleDb)'   = 'The custom code connects to a database through an OLE DB driver, which must be installed wherever the code runs.'
+    'ODBC (System.Data.Odbc)'      = 'The custom code connects to a database through an ODBC driver, which must be installed wherever the code runs.'
+    'Zip (System.IO.Compression)'  = 'The custom code zips or unzips files. ADF can compress and decompress files in a Copy activity, so this part can move.'
+    'Third-party zip library'      = 'The custom code uses a third-party zip library, which must be installed wherever the code runs.'
+    'Network / HTTP / FTP / mail'  = 'The custom code calls web addresses, FTP servers or sends email. Those endpoints must be reachable from wherever the code runs.'
+    'Office Interop'               = 'The custom code drives Microsoft Office (for example Excel) on the server. Office must be installed there, and Microsoft does not support Office automation on servers.'
+    'Active Directory'             = 'The custom code reads Active Directory, which is only reachable from a domain-joined server.'
+    'SFTP library'                 = 'The custom code uses a third-party SFTP library, which must be installed wherever the code runs. ADF has its own SFTP connector.'
+    'External process'             = 'The custom code starts another program on the server, which must be installed wherever the code runs.'
+    'Registry access'              = 'The custom code reads or writes the Windows registry, which ties it to that particular server.'
+    'File system I/O'              = 'The custom code reads or writes files on a server drive or share, which must be reachable wherever the code runs.'
+    'Hard-coded connection string' = 'The custom code contains a database connection string. It must be moved into configuration before the package can run anywhere else.'
+    'Hard-coded local / UNC path'  = 'The custom code contains a server drive or network share path. It must be moved into configuration before the package can run anywhere else.'
+    'Hard-coded URL'               = 'The custom code contains a web address. It must be moved into configuration before the package can run anywhere else.'
+}
+# Rules named at run time. {0} is the regex group captured from the name.
+$RuleExplanationPattern = [ordered]@{
+    '^Script dependency: Custom assembly reference \((.+)\)$' = 'The custom code uses an in-house library ({0}). It must be installed on every server that runs the package, and carried into any rewrite.'
+    '^Package configuration \((.+)\)$' = 'Takes its settings from an old-style package configuration ({0}). These must become project parameters (SSIS) or pipeline parameters and Key Vault secrets (ADF) before the package can move.'
+    '^Log provider \((.+)\)$'        = 'Writes a package log ({0}). Logging maps to SSIS catalog logging or Azure Monitor and does not affect the route.'
+    '^Unrecognized (\w+)$'           = 'Uses an SSIS {0} type the scanner does not recognise, usually a third-party or custom add-on. ADF cannot run SSIS add-ons, so the package stays on the SSIS VM until someone identifies the component.'
+}
+
+function Get-RuleExplanation {
+    <# Plain-language explanation for a rule (see $RuleExplanation). Falls back to the engineer Note, marked as such. #>
+    param([Parameter(Mandatory)]$Rule)
+    if ($RuleExplanation.ContainsKey($Rule.Name)) { return $RuleExplanation[$Rule.Name] }
+    $dep = $Rule.Name -replace '^Script dependency: '
+    if ($dep -ne $Rule.Name -and $ScriptDependencyExplanation.ContainsKey($dep)) { return $ScriptDependencyExplanation[$dep] }
+    foreach ($p in $RuleExplanationPattern.Keys) {
+        $m = [regex]::Match($Rule.Name, $p)
+        if ($m.Success) { return ($RuleExplanationPattern[$p] -f $m.Groups[1].Value) }
+    }
+    '{0} (plain-language text missing)' -f $Rule.Note
+}
+
 # Script Task / Script Component code inventory. Each pattern is matched against the script source (comment lines
 # removed) and the project file references; a hit becomes a 'Script dependency' evidence item. The route stays
 # KeepOnSsisVm (set by the script itself); the value is the dependency list and the Azure-SSIS IR fit.
@@ -419,6 +543,14 @@ $ScriptDependencyRule = @(
 # Project file references that ship with .NET Framework or the SSIS runtime. Anything else is a custom assembly
 # that has to be in the GAC of every runtime (Azure-SSIS IR: custom setup).
 $FrameworkReferencePattern = '^(System|Microsoft\.SqlServer|Microsoft\.CSharp|Microsoft\.VisualBasic|mscorlib|Microsoft\.VisualStudio\.Tools\.Applications|Microsoft\.Office\.Interop)\b'
+# Completeness check. A rule without plain-language text does not stop the run (the routes are still right):
+# its rows show the engineer Note marked as missing text, and the warning below goes to the transcript.
+# The routing test fails on that warning, so the gap is caught in the pull request that adds the rule.
+$missing = @(@($RuleTable) + @($PropertyRule.Values) | Where-Object { -not $RuleExplanation.ContainsKey($_.Name) } | ForEach-Object { $_.Name })
+$missing += @($ScriptDependencyRule | Where-Object { -not $ScriptDependencyExplanation.ContainsKey($_.Name) } | ForEach-Object { "Script dependency: $($_.Name)" })
+if ($missing.Count -gt 0) {
+    Write-Log -Level WARN -Message ('RULE-EXPLANATION-MISSING: no plain-language text for {0}. The backlog shows the engineer note for these; add them to $RuleExplanation / $ScriptDependencyExplanation.' -f ($missing -join ', '))
+}
 $SqlTaskNs = 'www.microsoft.com/sqlserver/dts/tasks/sqltask'
 # DTSConfigurationType (Microsoft.SqlServer.Dts.Runtime). I* = indirect: the location is held in an environment variable.
 $ConfigurationTypeName = @{
@@ -692,7 +824,7 @@ function Get-PackageAnalysis {
     $xml = New-Object System.Xml.XmlDocument
     $xml.XmlResolver = $null    # never resolve external entities
     try { $xml.LoadXml($XmlText) }
-    catch { $result.ParseStatus = 'ReviewRequired'; $result.ParseDetail = "Invalid XML: $($_.Exception.Message)"; return [PSCustomObject]$result }
+    catch { $result.ParseStatus = 'ReviewRequired'; $result.ParseDetail = "The package file is damaged or is not valid XML, so it could not be read: $($_.Exception.Message)"; return [PSCustomObject]$result }
 
     $ns = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
     $ns.AddNamespace('DTS', $DtsNs)
@@ -704,7 +836,7 @@ function Get-PackageAnalysis {
     if ($fmtNode) { $result.FormatVersion = $fmtNode.InnerText.Trim() }
     if ($root.NamespaceURI -ne $DtsNs -or ($result.FormatVersion -and [int]$result.FormatVersion -lt 6)) {
         $result.ParseStatus = 'ReviewRequired'
-        $result.ParseDetail = "Legacy package format '$($result.FormatVersion)' (SSIS 2008 R2 or earlier). Upgrade the package, then re-assess."
+        $result.ParseDetail = "Built with SSIS 2008 R2 or earlier (package format '$($result.FormatVersion)'), which this scan cannot read. Open and upgrade it in a current version of Visual Studio, then run the assessment again."
         return [PSCustomObject]$result
     }
     # DTS:ProtectionLevel is numeric and omitted when it is the default (1 = EncryptSensitiveWithUserKey).
@@ -715,7 +847,7 @@ function Get-PackageAnalysis {
     # EncryptAllWithPassword / EncryptAllWithUserKey replace the package body with DTS:EncryptedData.
     if ($root.SelectSingleNode('DTS:EncryptedData', $ns)) {
         $result.ParseStatus = 'ReviewRequired'
-        $result.ParseDetail = 'Package body is encrypted (EncryptAll*). Re-save with EncryptSensitive or DontSaveSensitive to assess.'
+        $result.ParseDetail = 'The whole package is encrypted (protection level EncryptAll*), so its contents could not be read. Re-save it with EncryptSensitive or DontSaveSensitive, which encrypt only passwords, then run the assessment again.'
         return [PSCustomObject]$result
     }
 
@@ -923,10 +1055,12 @@ function Resolve-PackageRoute {
     #>
     param([Parameter(Mandatory)]$Analysis, [Parameter(Mandatory)][string]$TargetVersion, [string[]]$ExtraDeprecated = @())
     if ($Analysis.ParseStatus -ne 'Parsed') {
-        return [PSCustomObject]@{ Route = 'ReviewRequired'; AzureIr = 'Review'; Reasons = $Analysis.ParseDetail; Removed = ''; Deprecated = ($ExtraDeprecated -join '; ') }
+        return [PSCustomObject]@{ Route = 'ReviewRequired'; AzureIr = 'Review'; Reasons = $Analysis.ParseDetail; Removed = ''; Deprecated = ($ExtraDeprecated -join '; ')
+                                  Drivers = @([PSCustomObject]@{ Category = 'ReviewRequired'; Name = 'Could not be read'; Text = $Analysis.ParseDetail }) }
     }
     $route = 'AdfNative-Low'; $ir = 'Compatible'
     $reasons = New-Object System.Collections.Generic.SortedSet[string]
+    $drivers = [ordered]@{}                                             # 'Category|Name' -> plain-language driver
     $removed = New-Object System.Collections.Generic.SortedSet[string]
     $deprec  = New-Object System.Collections.Generic.SortedSet[string]
     foreach ($d in $ExtraDeprecated) { [void]$deprec.Add($d) }
@@ -937,6 +1071,8 @@ function Resolve-PackageRoute {
         if ($RouteSeverity[$cat] -gt $RouteSeverity[$route]) { $route = $cat }
         if ($IrSeverity[$it.Rule.AzureIr] -gt $IrSeverity[$ir]) { $ir = $it.Rule.AzureIr }
         if ($cat -ne 'AdfNative-Low') { [void]$reasons.Add(('{0}: {1}' -f $cat, $it.Rule.Name)) }
+        $dk = '{0}|{1}' -f $cat, $it.Rule.Name
+        if (-not $drivers.Contains($dk)) { $drivers[$dk] = [PSCustomObject]@{ Category = $cat; Name = $it.Rule.Name; Text = (Get-RuleExplanation -Rule $it.Rule) } }
         switch ($it.Rule.Lifecycle) {
             'Removed2025'      { [void]$removed.Add("$($it.Rule.Name) (removed)") }
             'Discontinued2025' { [void]$removed.Add("$($it.Rule.Name) (discontinued)") }
@@ -945,11 +1081,13 @@ function Resolve-PackageRoute {
     }
     if ($removed.Count -gt 0 -and $TargetVersion -ne '2025') {
         [void]$reasons.Add("FutureRisk: SQL Server 2025 removals present - host must stay at SQL Server $TargetVersion or earlier until remediated")
+        $drivers['FutureRisk'] = [PSCustomObject]@{ Category = 'FutureRisk'; Name = 'Future risk'
+            Text = "Uses components that Microsoft removed in SQL Server 2025 (see Removed2025). The package runs on the planned SQL Server $TargetVersion host, but must be fixed before that host is upgraded to 2025." }
     }
     if ($reasons.Count -eq 0) { [void]$reasons.Add('Only Copy / SQL / orchestration constructs found') }
     [PSCustomObject]@{
         Route = $route; AzureIr = $ir; Reasons = (@($reasons) -join '; ')
-        Removed = (@($removed) -join '; '); Deprecated = (@($deprec) -join '; ')
+        Removed = (@($removed) -join '; '); Deprecated = (@($deprec) -join '; '); Drivers = @($drivers.Values)
     }
 }
 
@@ -972,6 +1110,7 @@ function Add-PackageResult {
             Scope = $it.Scope; ElementPath = $it.Path; TypeIdentity = $it.Identity; Disabled = $it.Disabled
             RuleName = $it.Rule.Name; Category = (Resolve-Category -Rule $it.Rule -TargetVersion $Context.TargetVersion)
             Lifecycle2025 = $it.Rule.Lifecycle; AzureSsisIr = $it.Rule.AzureIr; Note = $it.Rule.Note
+            Explanation = (Get-RuleExplanation -Rule $it.Rule)
         })
     }
     foreach ($f in $a.ConnFindings) {
@@ -1000,7 +1139,7 @@ function Add-PackageResult {
         ConnectionTypes = ((@($a.ConnFindings | ForEach-Object { $_.Rule.Name }) | Sort-Object -Unique) -join '; ')
         ChildPackages = ($a.Children -join '; '); RolledUpFrom = ''
         Executions = $null; FailedExecutions = $null; LastExecutionStart = $null; AvgDurationMin = $null; MaxDurationMin = $null
-        AgentJobs = ''; Uses32BitJobStep = $false
+        AgentJobs = ''; Uses32BitJobStep = $false; Drivers = $r.Drivers
     })
 }
 #endregion
@@ -1276,12 +1415,29 @@ function New-SprintBacklog {
             foreach ($b in $ComplexityBands.Keys) { if ($score -le $ComplexityBands[$b]) { $band = $b; break } }
             if ($p.ParseStatus -ne 'Parsed') { $band = 'TBD' }      # nothing was read, so there is nothing to size
 
-            # Decision drivers: only the rules that set the package's own route, plus any harder child it runs.
-            $all = @($p.RouteReasons -split '; ' | Where-Object { $_ })
-            $drivers = @($all | Where-Object { $_ -like "$($p.PackageRoute): *" } | ForEach-Object { $_.Substring($p.PackageRoute.Length + 2) })
-            $drivers += @($all | Where-Object { $_ -like 'FutureRisk: *' })
-            if ($drivers.Count -eq 0) { $drivers = $all }
-            if ($p.RolledUpFrom) { $drivers += "Runs child package(s) with a harder route: $($p.RolledUpFrom)" }
+            # Decision drivers, in plain language: the findings that set the package's own route (one summary line
+            # when that route is AdfNative-Low), the SQL Server 2025 future risk, and any harder child it runs.
+            $own = @($p.Drivers | Where-Object { $_.Category -eq $p.PackageRoute -or $_.Category -eq 'FutureRisk' })
+            $drivers = @($own | Where-Object { $_.Name -notlike 'Package configuration (*' } | ForEach-Object { '{0}: {1}' -f $_.Name, $_.Text })
+            $configs = @($own | Where-Object { $_.Name -like 'Package configuration (*' } | ForEach-Object { $_.Name -replace '^Package configuration \((.+)\)$', '$1' })
+            if ($configs.Count -gt 0) {
+                $drivers += 'Package configurations ({0}): {1}' -f ($configs -join ', '), ($RuleExplanationPattern['^Package configuration \((.+)\)$'] -f ($configs -join ', '))
+            }
+            if ($p.PackageRoute -eq 'AdfNative-Low') {
+                $drivers = @('Every step has a direct ADF equivalent (Copy, Script or Stored Procedure, Execute Pipeline), so this is a straightforward rewrite.') +
+                           @($own | Where-Object Category -eq 'FutureRisk' | ForEach-Object { '{0}: {1}' -f $_.Name, $_.Text })
+            }
+            # Children that make the route harder come first: they decide the EffectiveRoute.
+            $childDrivers = @()
+            foreach ($child in @($p.ChildPackages -split '; ' | Where-Object { $_ })) {
+                if ($child -like 'EXTERNAL:*') {
+                    $childDrivers += 'Runs a child package stored outside this project ({0}) that the scan could not read, so this route cannot be confirmed until that child is assessed.' -f ($child -replace '^EXTERNAL:')
+                }
+                elseif ($lookup.ContainsKey($child) -and $RouteSeverity[$lookup[$child].EffectiveRoute] -gt $RouteSeverity[$p.PackageRoute]) {
+                    $childDrivers += 'Runs child package {0}, which is planned for {1}, so this package cannot move before it.' -f $child, $RoutePlanning[$lookup[$child].EffectiveRoute].Platform
+                }
+            }
+            $drivers = @($childDrivers) + @($drivers)
 
             $usage = if ($p.SourceType -ne 'SSISDB') { 'No run history (not an SSISDB package)' }
                      elseif ([int]$p.Executions -eq 0) { "Not run in the last $HistoryDays days - confirm it is still needed" }
@@ -1294,7 +1450,7 @@ function New-SprintBacklog {
                 ComplexityBand = $band; ComplexityScore = $score; BuildOrder = $buildOrder
                 DependsOn = $p.ChildPackages
                 CalledBy = $(if ($calledBy.ContainsKey($p.Package)) { (@($calledBy[$p.Package]) | Sort-Object -Unique) -join '; ' } else { '' })
-                DecisionDrivers = ($drivers -join '; '); AzureSsisIrFit = $p.AzureSsisIrFit; Removed2025 = $p.Removed2025
+                DecisionDrivers = ($drivers -join ' | '); AzureSsisIrFit = $p.AzureSsisIrFit; Removed2025 = $p.Removed2025
                 Usage = $usage; LastExecutionStart = $p.LastExecutionStart; AvgDurationMin = $p.AvgDurationMin; AgentJobs = $p.AgentJobs
                 BusinessOwner = ''; Developer = ''; Sprint = ''; Status = ''; Decision = ''; Notes = ''
                 PlatformOrder = $plan.Order
@@ -1454,6 +1610,17 @@ function Export-SprintBacklog {
         Meaning = '1 = runs no child package in its project. A parent is always higher than every child it executes: build in ascending order.' })
     $legend.Add([PSCustomObject]@{ Item = 'AzureSsisIrFit'; Value = ''; TargetPlatform = ''; WorkType = ''
         Meaning = 'Option B (Azure-SSIS IR) suitability, reported separately from the route.' })
+    $legend.Add([PSCustomObject]@{ Item = 'DecisionDrivers'; Value = ''; TargetPlatform = ''; WorkType = ''
+        Meaning = 'What the scan found that decided the platform, as "finding: plain-language explanation", separated by " | ". The engineer-level detail for every finding is in evidence_items.csv.' })
+    $terms = [ordered]@{
+        'ADF'                 = 'Azure Data Factory: the Azure service that runs and schedules data pipelines. Packages planned for ADF are rebuilt as ADF pipelines.'
+        'SSIS VM'             = 'The SQL Server virtual machine in Azure that runs Integration Services (SSIS) packages unchanged. ADF starts them on a schedule.'
+        'SHIR'                = 'Self-hosted Integration Runtime: an ADF agent installed on a server inside the network. ADF needs one to reach anything Azure cannot see directly, such as file shares, local drives, Windows logins and some database drivers.'
+        'Copy activity'       = 'The ADF step that copies data from a source to a destination with little or no transformation.'
+        'Mapping Data Flow'   = 'The ADF step for transforming data on the way through (joins, lookups, calculated columns). It is the ADF counterpart of an SSIS data flow.'
+        'Azure-SSIS IR'       = 'Option B: an Azure-managed cluster that runs SSIS packages without a VM. AzureSsisIrFit says how well each package would suit it.'
+    }
+    foreach ($t in $terms.Keys) { $legend.Add([PSCustomObject]@{ Item = 'Term'; Value = $t; TargetPlatform = ''; Meaning = $terms[$t]; WorkType = '' }) }
 
     $sheets = New-Object System.Collections.Generic.List[object]
     $sheets.Add(@{ Name = 'Summary'; Columns = @('Environment', 'TargetPlatform', 'Packages') + $bandNames; Rows = $summary })
@@ -1527,7 +1694,7 @@ try {
     # ---- Output ----
     Write-Log -Level STEP -Message 'Writing output'
     $csv = @{ NoTypeInformation = $true; Encoding = 'UTF8' }
-    $Packages | Select-Object * -ExcludeProperty Key | Sort-Object Environment, ServerInstance, Folder, Project, Package |
+    $Packages | Select-Object * -ExcludeProperty Key, Drivers | Sort-Object Environment, ServerInstance, Folder, Project, Package |
         Export-Csv -Path (Join-Path $RunFolder 'package_assessment.csv') @csv
     $Evidence    | Export-Csv -Path (Join-Path $RunFolder 'evidence_items.csv') @csv
     $Connections | Export-Csv -Path (Join-Path $RunFolder 'connections.csv') @csv
