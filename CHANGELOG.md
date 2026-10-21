@@ -4,6 +4,16 @@ All notable changes to this repository. Dates are local (America/New_York).
 
 ## [Unreleased] — 2026-10-20
 
+### Fixed (2026-10-21) — builder on SQL Server 2025 with T16–T27
+- `01_New-SsisTestProject.ps1` preloads every installed SSIS task, enumerator and managed-connection
+  assembly instead of a fixed list. The new Execute Process, Bulk Insert and Foreach enumerator packages
+  stopped the build with 0x80131401 ("different grant set").
+
+### Verified (2026-10-21) — Windows SQL Server 2025 by hand
+- Parity harness self-test 18/18; offline routing test 67/67; 26 of 27 AssessmentTests packages built
+  and deployed (T15 skipped); server-mode routing test 66 passed, 0 failed, 1 skipped.
+- Known warning: the Cache connection manager in T22 has no `FileName` property on SSIS 17.0.
+
 ### Added (2026-10-21) — CI version matrix
 - The `parity-harness` CI job is a matrix: SQL Server 2017, 2019, 2022 and 2025 containers, plus 2025
   with the server collation `Latin1_General_100_CS_AS_SC_UTF8`. The `sa` password is generated per job and

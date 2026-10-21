@@ -91,6 +91,10 @@ version that has a Linux container image. All five configurations returned 18/18
 | SQL Server 2022 | 16.0.4305.5 | RTM-CU27-GDR | SQL_Latin1_General_CP1_CI_AS | 160 |
 | SQL Server 2025 | 17.0.5015.4 | RTM-CU9-GDR | SQL_Latin1_General_CP1_CI_AS | 170 |
 | SQL Server 2025 | 17.0.5015.4 | RTM-CU9-GDR | Latin1_General_100_CS_AS_SC_UTF8 | 170 |
+| SQL Server 2025 (Windows, by hand) | 17.0.5015.4 | CU9 | SQL_Latin1_General_CP1_CI_AS | 170 |
+
+The Windows run (Developer edition, Windows authentication, 2026-10-21) also returned 18/18, and on the same
+instance the server-mode routing test passed 66/0 with 1 skip (T15) against 26 deployed AssessmentTests packages.
 
 Notes:
 
