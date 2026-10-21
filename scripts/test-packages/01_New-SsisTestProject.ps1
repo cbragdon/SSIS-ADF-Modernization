@@ -113,8 +113,9 @@
 .NOTES
     Version : 1.0.0
     Part of : SSIS-ADF-Modernization repository (scripts\test-packages)
-    Status  : Built against documented SSIS object model APIs; not yet executed against a live SSIS
-              installation. Review build_manifest.csv and the build log after the first run.
+    Status  : Executed against SQL Server 2025 (SSIS 17.0): 14 of 15 packages build (T15 skipped, CDC/Oracle
+              components removed in 2025). Earlier SSIS versions not yet run; review build_manifest.csv
+              and the build log after the first run on them.
 #>
 [CmdletBinding()]
 param(
@@ -174,6 +175,14 @@ try {
         catch { continue }
     }
     if (-not $loaded) { throw 'No SSIS runtime assemblies (Microsoft.SqlServer.ManagedDTS 13-17) found in the GAC. Install the Integration Services feature or SSDT with SSIS.' }
+    # Preload the managed task and connection assemblies. Inside powershell.exe the SSIS runtime
+    # cannot always bind them on demand (0x80131401 "Cannot create a task from XML", unknown SMTP
+    # connection type); once loaded into the AppDomain they resolve.
+    foreach ($n in 'SQLTask', 'ScriptTask', 'FileSystemTask', 'ExpressionTask', 'SendMailTask', 'TxScript',
+                   'FtpTask', 'ManagedConnections', 'VSTAScriptingLib') {
+        try { [void][Reflection.Assembly]::Load("Microsoft.SqlServer.$n, Version=$($loaded.Version).0.0.0, Culture=neutral, PublicKeyToken=89845dcd8080cc91") }
+        catch { Write-Log -Level WARN -Message "Could not preload Microsoft.SqlServer.$n" }
+    }
     $verName = @{ '13' = '2016'; '14' = '2017'; '15' = '2019'; '16' = '2022'; '17' = '2025' }[$loaded.Version]
     Write-Log -Level OK -Message "Loaded SSIS assemblies version $($loaded.Version).0 (SQL Server $verName)"
 #endregion
@@ -258,15 +267,26 @@ namespace SsisTestKit
             return null;
         }
 
+        /// <summary>SSIS object names cannot contain / \ : [ ] . = ; replace them with underscores.</summary>
+        private static string SafeName(string name)
+        {
+            foreach (char ch in "/\\:[].=") name = name.Replace(ch, '_');
+            return name;
+        }
+
         // ------------------------------------------------------------------ helpers: control flow
         /// <summary>Adds a task by display name; returns null (and records a skip) if unavailable.</summary>
         private TaskHost AddTask(IDTSSequence container, string displayName, string fallbackMoniker, string name)
         {
             try
             {
-                Executable e = container.Executables.Add(TaskMoniker(displayName, fallbackMoniker));
+                // Prefer the stable STOCK: moniker; the catalogue's CreationName can name an assembly
+                // version that fails to load (0x80131401 on SSIS 2025).
+                Executable e;
+                try { e = container.Executables.Add(fallbackMoniker); }
+                catch (Exception) { e = container.Executables.Add(TaskMoniker(displayName, fallbackMoniker)); }
                 TaskHost th = (TaskHost)e;
-                th.Name = name;
+                th.Name = SafeName(name);
                 return th;
             }
             catch (Exception ex) { Skip(displayName + " (" + ex.Message + ")"); return null; }
@@ -274,7 +294,10 @@ namespace SsisTestKit
 
         private void SetProp(DtsContainer c, string prop, object value)
         {
-            try { c.Properties[prop].SetValue(c, value); }
+            // DtsContainer itself has no Properties; TaskHost, Package and the containers implement IDTSPropertiesProvider.
+            IDTSPropertiesProvider pp = c as IDTSPropertiesProvider;
+            if (pp == null) { Warn("Cannot set " + prop + " on " + c.Name + ": no property collection"); return; }
+            try { pp.Properties[prop].SetValue(c, value); }
             catch (Exception ex) { Warn("Could not set " + prop + " on " + c.Name + ": " + ex.Message); }
         }
 
@@ -351,7 +374,7 @@ namespace SsisTestKit
                     return null;
                 }
             }
-            md.Name = name;   // ProvideComponentProperties resets the name, so set it last.
+            md.Name = SafeName(name);   // ProvideComponentProperties resets the name, so set it last.
             return md;
         }
 
@@ -501,9 +524,11 @@ namespace SsisTestKit
         private void BuildCopy(Package p, ConnectionManager cm, bool live)
         {
             TaskHost trunc = AddExecuteSql(p, "Truncate dst.Customer", cm, "TRUNCATE TABLE dst.Customer;");
-            MainPipe mp = AddDataFlow(p, "Copy Customer");
-            Executable dfExe = p.Executables[p.Executables.Count - 1];
-            Link(p, trunc, dfExe, DTSExecResult.Success, null);
+            // Link to the TaskHost returned by Add: a constraint to an Executable fetched back through
+            // p.Executables[index] makes SaveToXml fail with 0x80010105 and project.Save hang.
+            TaskHost dfHost = AddTask(p, "Data Flow Task", "STOCK:PipelineTask", "Copy Customer");
+            MainPipe mp = dfHost == null ? null : (MainPipe)dfHost.InnerObject;
+            Link(p, trunc, dfHost, DTSExecResult.Success, null);
 
             IDTSComponentMetaData100 src = AddComponent(mp, "OLE DB Source", "Read src.Customer");
             UseConnection(src, cm);
@@ -708,7 +733,7 @@ namespace SsisTestKit
             Package p = NewPackage("T10_FlatFileToExcel", "KeepOnSsisVm", "KeepOnSsisVm", false,
                 "UNC flat file source to Excel destination via the ACE provider. ADF cannot write Excel, so the package stays on the SSIS runtime.");
             ConnectionManager ff = p.Connections.Add("FLATFILE");
-            ff.Name = "Landing customers.csv";
+            ff.Name = "Landing customers csv";
             ff.ConnectionString = s.LandingPath + "\\customers.csv";
             ConnectionManager xl = p.Connections.Add("EXCEL");
             xl.Name = "Report workbook";

@@ -101,7 +101,7 @@
     Version : 1.0.0
     Part of : SSIS-ADF-Modernization repository (scripts\test-packages)
     Compat  : Windows PowerShell 5.1 and PowerShell 7.x (uses .NET SqlClient only).
-    Status  : Not yet executed against a live SSISDB. Run with -WhatIf first.
+    Status  : Executed against a SQL Server 2025 SSISDB (deploy, environments, bindings). Run with -WhatIf first.
 #>
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
 param(
@@ -171,7 +171,9 @@ function Invoke-Sql {
         $cmd = $conn.CreateCommand(); $cmd.CommandText = $Query; $cmd.CommandTimeout = $CommandTimeoutSeconds
         foreach ($k in $Parameters.Keys) {
             $v = $Parameters[$k]
-            $p = $cmd.Parameters.AddWithValue($k, $(if ($null -eq $v) { [DBNull]::Value } else { $v }))
+            # No $(if ...) here: a subexpression unrolls byte[] into object[] and the deploy fails.
+            if ($null -eq $v) { $v = [DBNull]::Value }
+            $p = $cmd.Parameters.AddWithValue($k, $v)
             if ($v -is [byte[]]) { $p.SqlDbType = [System.Data.SqlDbType]::VarBinary; $p.Size = -1 }
         }
         if ($Scalar)   { return $cmd.ExecuteScalar() }
