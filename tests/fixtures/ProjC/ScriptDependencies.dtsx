@@ -1,0 +1,85 @@
+<?xml version="1.0"?>
+<!-- G03: Script Task and Script Component code is inventoried for runtime dependencies. The commented-out Office
+     Interop import and the SFTP library in the disabled task must NOT be reported. -->
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:refId="Package" DTS:ExecutableType="Microsoft.Package" DTS:ObjectName="ScriptDependencies">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:Executables>
+    <DTS:Executable DTS:refId="Package\Archive and notify" DTS:ExecutableType="Microsoft.ScriptTask" DTS:ObjectName="Archive and notify">
+      <DTS:ObjectData>
+        <ScriptProject Name="ST_ArchiveNotify" VSTAMajorVersion="17" VSTAMinorVersion="0" Language="CSharp">
+          <ProjectItem Name="ScriptMain.cs" Encoding="UTF8"><![CDATA[using System;
+using System.Data.SqlClient;
+using System.Diagnostics;
+using System.IO;
+// using Microsoft.Office.Interop.Excel;
+using Acme.Etl.Helpers;
+
+public partial class ScriptMain
+{
+    public void Main()
+    {
+        string drop = @"\\fileserver\drop\";
+        foreach (string f in Directory.GetFiles(drop, "*.csv"))
+        {
+            File.Move(f, Path.Combine(drop, "archive", Path.GetFileName(f)));
+        }
+        /* Process.Start would be flagged if this block were live, but the External process
+           dependency comes from the call below. */
+        Process.Start("7z.exe", "a archive.7z *.csv");
+        using (SqlConnection cn = new SqlConnection(Dts.Variables["User::AuditConn"].Value.ToString()))
+        {
+            cn.Open();
+        }
+        Notifier.Send("archive complete");
+    }
+}
+]]></ProjectItem>
+          <ProjectItem Name="ST_ArchiveNotify.csproj" Encoding="UTF8"><![CDATA[<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Data" />
+    <Reference Include="Microsoft.SqlServer.ManagedDTS, Version=17.0.0.0, Culture=neutral, PublicKeyToken=89845dcd8080cc91" />
+    <Reference Include="Acme.Etl.Helpers, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" />
+  </ItemGroup>
+</Project>]]></ProjectItem>
+        </ScriptProject>
+      </DTS:ObjectData>
+    </DTS:Executable>
+    <DTS:Executable DTS:refId="Package\Upload (disabled)" DTS:ExecutableType="Microsoft.ScriptTask" DTS:ObjectName="Upload (disabled)" DTS:Disabled="True">
+      <DTS:ObjectData>
+        <ScriptProject Name="ST_Upload" VSTAMajorVersion="17" VSTAMinorVersion="0" Language="CSharp">
+          <ProjectItem Name="ScriptMain.cs" Encoding="UTF8"><![CDATA[using WinSCP;
+public partial class ScriptMain { public void Main() { } }
+]]></ProjectItem>
+        </ScriptProject>
+      </DTS:ObjectData>
+    </DTS:Executable>
+    <DTS:Executable DTS:refId="Package\Enrich rates" DTS:ExecutableType="Microsoft.Pipeline" DTS:ObjectName="Enrich rates">
+      <DTS:ObjectData><pipeline version="1"><components>
+        <component refId="a" componentClassID="Microsoft.OLEDBSource" name="Src" />
+        <component refId="b" componentClassID="Microsoft.ManagedComponentHost" name="Rate lookup">
+          <properties>
+            <property name="UserComponentTypeName">Microsoft.SqlServer.Dts.Pipeline.ScriptComponentHost, Microsoft.SqlServer.TxScript, Version=17.0.0.0, Culture=neutral, PublicKeyToken=89845dcd8080cc91</property>
+            <property name="SourceCode" state="cdata">
+              <arrayElements arrayElementCount="2">
+                <arrayElement dataType="System.String"><![CDATA[main.vb]]></arrayElement>
+                <arrayElement dataType="System.String"><![CDATA[Imports System
+Imports System.Data.Odbc
+Public Class ScriptMain
+    Public Overrides Sub Input0_ProcessInputRow(ByVal Row As Input0Buffer)
+        ' Dim reg As Object = Microsoft.Win32.Registry.LocalMachine
+        Dim url As String = "https://rates.example.com/api/fx"
+        Using cn As New OdbcConnection("DSN=RatesDsn")
+        End Using
+    End Sub
+End Class
+]]></arrayElement>
+              </arrayElements>
+            </property>
+          </properties>
+        </component>
+        <component refId="c" componentClassID="Microsoft.OLEDBDestination" name="Dest" />
+      </components></pipeline></DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

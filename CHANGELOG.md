@@ -4,6 +4,39 @@ All notable changes to this repository. Dates are local (America/New_York).
 
 ## [Unreleased] — 2026-10-20
 
+### Changed (2026-10-20) — assessment v2.2.0 (G03, G04, G20 from the TechBrothersIT scenario review)
+- **Opaque SQL (G04)**: an Execute SQL Task whose statement comes from a variable or a file connection
+  (`SqlStmtSourceType` Variable / FileConnection) raises the route to AdfNative-Medium, because the SQL
+  that runs is not in the package. A statement set by a property expression is still visible and is not
+  flagged. A full result set (`ResultSetType_Rowset`) is reported as an informational Low item (ADF Lookup
+  5,000-row / 4 MB limit). New column `OpaqueSqlStatements`.
+- **Script dependency inventory (G03)**: Script Task source (`ScriptProject/ProjectItem`) and Script
+  Component source (`SourceCode`) are scanned for SqlClient, OLE DB, ODBC, zip libraries, network/HTTP/FTP/
+  mail, Office Interop, Active Directory, SFTP libraries, external processes, registry, file I/O, and
+  hard-coded connection strings, paths and URLs; `.csproj`/`.vbproj` references outside the framework are
+  listed as custom assemblies. Each hit is a `ScriptDependency` evidence item (KeepOnSsisVm, with its own
+  Azure-SSIS IR fit). Comment lines and disabled tasks are ignored; literal values are never written out.
+  New column `ScriptDependencies`.
+- **Fixed-width / ragged-right flat files (G20)** are flagged AdfNative-Medium (no ADF delimited-text
+  equivalent).
+- The Foreach ADO.NET Schema Rowset Enumerator is matched explicitly by the ADO enumerator rule.
+
+### Added (2026-10-20)
+- Fixtures `ProjC/OpaqueSql.dtsx`, `ProjC/ScriptDependencies.dtsx`, `ProjC/FixedWidth.dtsx`.
+- `03_Test-AssessmentRouting.ps1` v1.2.0: an `ExpectedReasons` token starting with `!` must be absent.
+  `AssessmentTests_expected_routes.csv` gains the optional `ExpectedReasons` column.
+- `01_New-SsisTestProject.ps1` v1.1.0: packages T16–T27 for G04 and G10–G21 (opaque SQL, result sets,
+  Excel sheet loop, Execute Process, Bulk Insert, Merge Join, Cache Transform, more transforms, Import/
+  Export Column, Recordset Destination, flat file formats, dynamic Send Mail), plus `PathTo`,
+  `SetTaskEnum`, `AddResultBinding`, `SetEnumerator` and `AddFlatFile` helpers.
+
+### Verified (2026-10-20)
+- Fixtures: 67/67 checks pass with v2.2.0; the same fixtures fail 11 checks against v2.1.0.
+- The 14 live-built AssessmentTests packages and the DriveSpace C#/VB lab packages keep their routes and
+  Azure-SSIS IR fit; DriveSpace now lists its SqlClient and file I/O dependencies.
+- T16–T27 builder code passes a C# syntax parse only. It has not been compiled against the SSIS
+  assemblies or run; that needs the Windows build machine.
+
 ### Changed (2026-10-20) — assessment v2.1.0 (P1 gaps from the TechBrothersIT scenario review)
 - **Raw File Source/Destination** now routes AdfNative-Medium instead of AdfNative-Low: ADF has no SSIS
   Raw format, so it is not a Copy activity source/sink.

@@ -22,7 +22,8 @@
     ------
     * PackageRoute and EffectiveRoute equal the expected values.
     * Every token in the optional ExpectedReasons column ('|'-separated) appears in RouteReasons, so a
-      case is proven to route for the right reason, not just to the right route.
+      case is proven to route for the right reason, not just to the right route. A token that starts
+      with '!' must be absent (for example a commented-out dependency that must not be reported).
     * Every expected package was found (missing = FAIL unless the build manifest says it was skipped).
     * No secret test value appears in any assessment output file (password masking).
     * The assessment reported zero errors (errors.csv empty).
@@ -48,7 +49,7 @@
     .\03_Test-AssessmentRouting.ps1 -Mode Server -ServerInstance <DevSqlServer> -TrustServerCertificate
 
 .NOTES
-    Version : 1.1.0
+    Version : 1.2.0
     Compat  : Windows PowerShell 5.1 and PowerShell 7.x.
 #>
 [CmdletBinding()]
@@ -157,13 +158,17 @@ foreach ($ver in $runs.Keys) {
                 Expected = $pair[1]; Actual = $a.($pair[0]); Status = $(if ($ok) { 'PASS' } else { 'FAIL' })
             })
         }
-        # Optional reason checks: each token must appear in the package's RouteReasons (case-insensitive).
+        # Optional reason checks: each token must appear in the package's RouteReasons (case-insensitive), or be absent when negated.
         if ($e.PSObject.Properties['ExpectedReasons'] -and $e.ExpectedReasons) {
             foreach ($token in ($e.ExpectedReasons -split '\|' | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
-                $ok = ([string]$a.RouteReasons).IndexOf($token, [StringComparison]::OrdinalIgnoreCase) -ge 0
+                # A leading '!' means the token must NOT appear (proves a false positive is suppressed).
+                $negate = $token.StartsWith('!')
+                $text   = $token.TrimStart('!').Trim()
+                $found  = ([string]$a.RouteReasons).IndexOf($text, [StringComparison]::OrdinalIgnoreCase) -ge 0
+                $ok     = $found -ne $negate
                 $results.Add([PSCustomObject]@{
                     Target = $ver; Check = 'RouteReason'; Package = "$($e.Project)\$($e.Package)"
-                    Expected = $token; Actual = $(if ($ok) { 'present' } else { 'missing' }); Status = $(if ($ok) { 'PASS' } else { 'FAIL' })
+                    Expected = $token; Actual = $(if ($found) { 'present' } else { 'missing' }); Status = $(if ($ok) { 'PASS' } else { 'FAIL' })
                 })
             }
         }

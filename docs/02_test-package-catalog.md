@@ -9,7 +9,7 @@ convenience only.
 | AssessmentTests project | `test-packages/AssessmentTests/`, `build/AssessmentTests.ispac` | `01_New-SsisTestProject.ps1` (SSIS object model) | SSISDB on the Dev server | Real, deployable packages; parameters, environments, run history |
 | Fixtures | `tests/fixtures/` | Hand-written XML | Offline / CI | Cases a modern SSIS install cannot build: encrypted and 2008-era packages, Attunity CDC, third-party tasks, odd `.ispac` part names |
 
-## AssessmentTests project (15 packages, target SQL Server 2025)
+## AssessmentTests project (27 packages, target SQL Server 2025)
 
 | Package | Objects and parameters exercised | Expected route | Expected effective route | Runnable |
 | --- | --- | --- | --- | --- |
@@ -28,6 +28,21 @@ convenience only.
 | T13_FtpAndSendMail | FTP Task; Send Mail Task; FTP and SMTP connection managers | AdfNative-Medium | AdfNative-Medium | Parse only |
 | T14_FuzzyLookup | Fuzzy Lookup — built only if installed | KeepOnSsisVm | KeepOnSsisVm | Parse only |
 | T15_RemovedIn2025 | CDC / Oracle components — built only if installed (usually absent on 2022+) | Remediate2025 | Remediate2025 | No |
+| T16_OpaqueSql | G04: Execute SQL statement from a variable and from a `.sql` file connection | AdfNative-Medium | AdfNative-Medium | Parse only |
+| T17_ResultSets | G10: Execute SQL single-row and full result sets; Foreach ADO Enumerator over the Object variable | AdfNative-Medium | AdfNative-Medium | Parse only |
+| T18_ExcelSheetLoop | G11: Foreach ADO.NET Schema Rowset Enumerator over worksheets; G19: Excel Source and Execute SQL on an Excel (ACE) connection | AdfNative-Medium | AdfNative-Medium | Parse only |
+| T19_ExecuteProcess | G12: Execute Process Task, expression-driven arguments | KeepOnSsisVm | KeepOnSsisVm | Parse only |
+| T20_BulkInsert | G13: Bulk Insert Task from a UNC file | AdfNative-Medium | AdfNative-Medium | Parse only |
+| T21_MergeJoin | G14: Sort → Merge Join (two inputs) → Merge | AdfNative-Medium | AdfNative-Medium | Parse only |
+| T22_CacheTransform | G15: Cache Transform into a file-backed Cache connection; Lookup in cache mode | AdfNative-Medium | AdfNative-Medium | Parse only |
+| T23_MoreTransforms | G16: Pivot, Unpivot, Character Map, Copy Column, Row Sampling, Percentage Sampling, Audit | AdfNative-Medium | AdfNative-Medium | Parse only |
+| T24_ImportExportColumn | G17: Import Column and Export Column | KeepOnSsisVm | KeepOnSsisVm | Parse only |
+| T25_RecordsetDestination | G18: Recordset Destination into an Object variable; Foreach ADO loop over it | KeepOnSsisVm | KeepOnSsisVm | Parse only |
+| T26_FlatFileFormats | G20: fixed width, ragged right, pipe-delimited UTF-8 (code page 65001), Multiple Flat Files | AdfNative-Medium | AdfNative-Medium | Parse only |
+| T27_DynamicMail | G21: Send Mail Task in an OnError handler; expression subject/body; local attachment | AdfNative-Medium | AdfNative-Medium | Parse only |
+
+T16–T27 were added in builder v1.1.0 and have not yet been built on SSIS. After the first build, check the
+`Warnings` and `SkippedItems` columns of `build_manifest.csv`, then run the Server-mode routing test.
 
 ### Project-level objects
 
@@ -58,14 +73,18 @@ convenience only.
 | `ProjC/TxnCheckpoint.dtsx` | G08: `TransactionOption=Required` container (MSDTC); checkpoint restart | AdfNative-Medium | — |
 | `ProjC/LoggingProviders.dtsx` | G09: five log providers; file and Windows-auth connections used only for logging | AdfNative-Low | — |
 | `ProjC/LoggingSharedConn.dtsx` | G09 control: log file connection also used by a File System Task | AdfNative-Medium | — |
+| `ProjC/OpaqueSql.dtsx` | G04: Execute SQL from a variable; full result set (informational); disabled file-connection statement excluded | AdfNative-Medium | — |
+| `ProjC/ScriptDependencies.dtsx` | G03: Script Task (C#, with `.csproj` references) and Script Component (VB) dependency inventory; commented-out code and a disabled task must not be reported | KeepOnSsisVm, Azure-SSIS IR NeedsCustomSetup | — |
+| `ProjC/FixedWidth.dtsx` | G20: fixed-width and ragged-right flat file connections | AdfNative-Medium | — |
 
-`G01`–`G09` refer to the SSIS test package gap analysis (TechBrothersIT scenario review). The `ExpectedReasons`
-column in `tests/expected/fixtures_expected_routes.csv` lists `|`-separated text that must appear in the
-package's `RouteReasons`, so these cases prove the route is right for the right reason.
+`G01`–`G21` refer to the SSIS test package gap analysis (TechBrothersIT scenario review). The optional
+`ExpectedReasons` column in both `tests/expected/*.csv` files lists `|`-separated text that must appear in
+the package's `RouteReasons`, so these cases prove the route is right for the right reason. A token that
+starts with `!` must **not** appear (for example a commented-out `using` that must not be reported).
 
 ## Adding a test case
 
 1. Add the package (builder method or fixture file).
-2. Add its row to the matching `tests/expected/*.csv`, with what it covers. In the fixtures file, fill
-   `ExpectedReasons` when the route alone cannot prove the rule fired.
+2. Add its row to the matching `tests/expected/*.csv`, with what it covers. Fill `ExpectedReasons` when
+   the route alone cannot prove the rule fired.
 3. Run `03_Test-AssessmentRouting.ps1` locally; commit both together. CI runs the fixtures on every push.

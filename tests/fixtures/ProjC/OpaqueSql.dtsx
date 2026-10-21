@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<!-- G04: the SQL that runs is not in the package. One Execute SQL Task reads its statement from a variable, a
+     second returns a full result set into an Object variable (informational: ADF Lookup row limit), and a
+     disabled third reads its statement from a .sql file connection (disabled, so it must not count). -->
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:refId="Package" DTS:ExecutableType="Microsoft.Package" DTS:ObjectName="OpaqueSql">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[SRC]" DTS:CreationName="OLEDB" DTS:DTSID="{C0000010-0000-0000-0000-000000000001}" DTS:ObjectName="SRC">
+      <DTS:ObjectData><DTS:ConnectionManager DTS:ConnectionString="Data Source=SRCSERVER;Initial Catalog=Staging;Provider=MSOLEDBSQL19;User ID=etl_reader;" /></DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+  <DTS:Variables>
+    <DTS:Variable DTS:Namespace="User" DTS:ObjectName="MergeSql"><DTS:VariableValue DTS:DataType="8">EXEC etl.usp_Merge_Customer;</DTS:VariableValue></DTS:Variable>
+    <DTS:Variable DTS:Namespace="User" DTS:ObjectName="CustomerList"><DTS:VariableValue DTS:DataType="13" /></DTS:Variable>
+  </DTS:Variables>
+  <DTS:Executables>
+    <DTS:Executable DTS:refId="Package\Run statement from variable" DTS:ExecutableType="Microsoft.ExecuteSQLTask" DTS:ObjectName="Run statement from variable">
+      <DTS:ObjectData>
+        <SQLTask:SqlTaskData SQLTask:Connection="{C0000010-0000-0000-0000-000000000001}" SQLTask:SqlStmtSourceType="Variable" SQLTask:SqlStatementSource="User::MergeSql" xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask" />
+      </DTS:ObjectData>
+    </DTS:Executable>
+    <DTS:Executable DTS:refId="Package\Get customer list" DTS:ExecutableType="Microsoft.ExecuteSQLTask" DTS:ObjectName="Get customer list">
+      <DTS:ObjectData>
+        <SQLTask:SqlTaskData SQLTask:Connection="{C0000010-0000-0000-0000-000000000001}" SQLTask:ResultType="ResultSetType_Rowset" SQLTask:SqlStatementSource="SELECT CustomerId FROM src.Customer;" xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask">
+          <SQLTask:ResultBinding SQLTask:ResultName="0" SQLTask:DtsVariableName="User::CustomerList" />
+        </SQLTask:SqlTaskData>
+      </DTS:ObjectData>
+    </DTS:Executable>
+    <DTS:Executable DTS:refId="Package\Run script file (disabled)" DTS:ExecutableType="Microsoft.ExecuteSQLTask" DTS:ObjectName="Run script file (disabled)" DTS:Disabled="True">
+      <DTS:ObjectData>
+        <SQLTask:SqlTaskData SQLTask:Connection="{C0000010-0000-0000-0000-000000000001}" SQLTask:SqlStmtSourceType="FileConnection" SQLTask:SqlStatementSource="cleanup.sql" xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask" />
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

@@ -9,11 +9,14 @@ FileSystem,(file system),Encrypted.dtsx,2025,ReviewRequired,ReviewRequired,Encry
 FileSystem,(file system),Legacy2008.dtsx,2025,ReviewRequired,ReviewRequired,PackageFormatVersion 3 (SSIS 2008 R2),
 FileSystem,ProjC,ErrorRows.dtsx,2025,AdfNative-Medium,AdfNative-Medium,G01 error-row redirection (Data Conversion error output) on an otherwise plain copy,Error-row redirection
 FileSystem,ProjC,RawStage.dtsx,2025,AdfNative-Medium,AdfNative-Medium,G02 Raw File Source/Destination staging; ADF has no SSIS Raw format,Raw File Source/Destination
-FileSystem,ProjC,DynamicPaths.dtsx,2025,AdfNative-Medium,AdfNative-Medium,G05 UNC path built by a connection string expression from a variable expression; Foreach ADO enumerator,Local drive / UNC file path (set by expression)
+FileSystem,ProjC,DynamicPaths.dtsx,2025,AdfNative-Medium,AdfNative-Medium,G05 UNC path built by a connection string expression from a variable expression; Foreach ADO enumerator,Local drive / UNC file path (set by expression)|!Fixed-width
 FileSystem,ProjC,DisabledContainer.dtsx,2025,AdfNative-Low,AdfNative-Low,G06 enabled Script Task inside a disabled Sequence container is excluded,
 FileSystem,(file system),LegacyConfig.dtsx,2025,AdfNative-Medium,ReviewRequired,G07 package configurations (file/SQL table/env var/parent variable); file-system child package not resolvable,Package configuration (ConfigFile)|Package configuration (SqlServer)|Package configuration (EnvVariable)|Package configuration (ParentVariable)
 FileSystem,ProjC,TxnCheckpoint.dtsx,2025,AdfNative-Medium,AdfNative-Medium,G08 TransactionOption=Required (MSDTC) container and checkpoint restart,Distributed transaction|Checkpoint restart
 FileSystem,ProjC,LoggingProviders.dtsx,2025,AdfNative-Low,AdfNative-Low,G09 five log providers; their file and Windows-auth connections are logging-only and do not raise the route,
 FileSystem,ProjC,LoggingSharedConn.dtsx,2025,AdfNative-Medium,AdfNative-Medium,G09 control: log file connection also used by a File System Task stays a data path,Local drive / UNC file path
+FileSystem,ProjC,OpaqueSql.dtsx,2025,AdfNative-Medium,AdfNative-Medium,G04 Execute SQL statement from a variable; full result set (informational); disabled file-connection statement excluded,SQL statement from variable / file
+FileSystem,ProjC,ScriptDependencies.dtsx,2025,KeepOnSsisVm,KeepOnSsisVm,G03 Script Task and Script Component dependency inventory; commented-out code and disabled task excluded,Script dependency: ADO.NET SqlClient|Script dependency: File system I/O|Script dependency: External process|Script dependency: Hard-coded local / UNC path|Script dependency: Custom assembly reference (Acme.Etl.Helpers)|Script dependency: ODBC|Script dependency: Hard-coded URL|!Office Interop|!SFTP library|!Registry access
+FileSystem,ProjC,FixedWidth.dtsx,2025,AdfNative-Medium,AdfNative-Medium,G20 fixed-width and ragged-right flat file connections,Fixed-width / ragged-right flat file
 FileSystem,ProjA,Child.dtsx,2022,KeepOnSsisVm,KeepOnSsisVm,2025 removals are future risk on a 2022 host,
 FileSystem,ProjA,Parent.dtsx,2022,KeepOnSsisVm,KeepOnSsisVm,Roll-up under 2022 target,
