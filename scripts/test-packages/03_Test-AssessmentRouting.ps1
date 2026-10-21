@@ -55,7 +55,7 @@
     .\03_Test-AssessmentRouting.ps1 -Mode Server -ServerInstance <DevSqlServer> -TrustServerCertificate
 
 .NOTES
-    Version : 1.3.0
+    Version : 1.4.0
     Compat  : Windows PowerShell 5.1 and PowerShell 7.x.
 #>
 [CmdletBinding()]
@@ -191,6 +191,7 @@ foreach ($ver in $runs.Keys) {
         Status = $(if ((Test-Path -LiteralPath $backlogPath) -and $backlog.Count -eq $actual.Count) { 'PASS' } else { 'FAIL' }) })
     $xlsxPath = Join-Path $run 'sprint_backlog.xlsx'
     $xlsxRows = -1
+    $sheetHeaders = @{}
     if (Test-Path -LiteralPath $xlsxPath) {
         try {
             $xl = Read-XlsxParts -Path $xlsxPath
@@ -198,11 +199,35 @@ foreach ($ver in $runs.Keys) {
             $sheetNames = @($wbXml.workbook.sheets.sheet | ForEach-Object { $_.name })
             $idx = [array]::IndexOf($sheetNames, 'Backlog')
             if ($idx -ge 0) { [xml]$sheetXml = $xl["xl/worksheets/sheet$($idx + 1).xml"]; $xlsxRows = @($sheetXml.worksheet.sheetData.row).Count - 1 }
+            for ($i = 0; $i -lt $sheetNames.Count; $i++) {
+                [xml]$sx = $xl["xl/worksheets/sheet$($i + 1).xml"]
+                $sheetHeaders[$sheetNames[$i]] = @(@($sx.worksheet.sheetData.row)[0].c | ForEach-Object { $_.InnerText })
+            }
         }
         catch { $xlsxRows = -1 }
     }
     $results.Add([PSCustomObject]@{ Target = $ver; Check = 'Backlog workbook'; Package = '-'; Expected = "$allCount rows"; Actual = "$xlsxRows rows"
         Status = $(if ($xlsxRows -eq $allCount) { 'PASS' } else { 'FAIL' }) })
+    # PackageLocation then isMigrating sit immediately right of Package, in the CSV and on every package sheet.
+    $wantCols = 'Package,PackageLocation,isMigrating'
+    $placement = @{ 'CSV' = @(if (Test-Path -LiteralPath $backlogPath) { (Get-Content -LiteralPath $backlogPath -TotalCount 1) -split ',' | ForEach-Object { $_.Trim('"') } }) }
+    foreach ($sn in @($sheetHeaders.Keys | Where-Object { $_ -notin @('Summary', 'Legend') })) { $placement[$sn] = $sheetHeaders[$sn] }
+    $badPlacement = @(foreach ($k in @($placement.Keys | Sort-Object)) {
+        $h = @($placement[$k]); $i = [array]::IndexOf($h, 'Package')
+        if ($i -lt 0 -or $i + 2 -ge $h.Count -or (($h[$i..($i + 2)]) -join ',') -ne $wantCols) { $k }
+    })
+    $results.Add([PSCustomObject]@{ Target = $ver; Check = 'Backlog columns'; Package = '-'; Expected = "$wantCols on CSV, Backlog and platform sheets"
+        Actual = $(if ($badPlacement.Count -eq 0 -and $placement.Count -ge 3) { "ok on $(@($placement.Keys | Sort-Object) -join ', ')" } else { "wrong on $($badPlacement -join ', ') (checked $($placement.Count))" })
+        Status = $(if ($badPlacement.Count -eq 0 -and $placement.Count -ge 3) { 'PASS' } else { 'FAIL' }) })
+    # Fixtures are loose .dtsx files plus one .ispac.
+    $expectedLocation = if ($Mode -eq 'Server') { @('SSISDB') } else { @('File system', 'File system (.ispac)') }
+    foreach ($b in $backlog) {
+        $okLoc = $b.PackageLocation -in $expectedLocation
+        $okMig = $b.isMigrating -in @('Yes', 'Review')
+        $results.Add([PSCustomObject]@{ Target = $ver; Check = 'PackageLocation/isMigrating'; Package = $b.Package
+            Expected = "$($expectedLocation -join ' or ') / Yes or Review"; Actual = "$($b.PackageLocation) / $($b.isMigrating)"
+            Status = $(if ($okLoc -and $okMig) { 'PASS' } else { 'FAIL' }) })
+    }
     # Every rule needs plain-language text. The assessment logs RULE-EXPLANATION-MISSING (and keeps running)
     # when one is missing; here that fails the build, so the gap never reaches a business reader.
     $transcript = Join-Path $run 'transcript.log'

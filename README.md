@@ -116,7 +116,13 @@ directly as Office Open XML, so neither Excel nor the ImportExcel module is need
 
 Columns:
 
-* **Identity:** `Environment`, `ServerInstance`, `Folder`, `Project`, `Package`.
+* **Identity:** `Environment`, `ServerInstance`, `Folder`, `Project`, `Package`, then `PackageLocation`, which
+  says where the scan found the package: `SSISDB` (project deployment model), `MSDB` (legacy package deployment
+  model), `File system` (a `.dtsx` read with `-Path`) or `File system (.ispac)`.
+* **Scope:** `isMigrating` (right of `PackageLocation`) is a proposed default for the team to confirm. It is
+  `Yes` for every package except one that is in SSISDB but has not run in the `-HistoryDays` window (90 days by
+  default), which gets `Review`. The assessment never sets `No`; the team sets it for a package being retired.
+  MSDB and file-system packages have no run history to judge, so they start at `Yes`.
 * **Plan:** `TargetPlatform`, `Route` (the `EffectiveRoute`), `WorkType`.
 * **Sizing:** `ComplexityScore` and `ComplexityBand`. `ComplexityScore` = enabled tasks + data flow
   components + 3 × (script tasks + script components) + event handlers + error-row redirects + opaque

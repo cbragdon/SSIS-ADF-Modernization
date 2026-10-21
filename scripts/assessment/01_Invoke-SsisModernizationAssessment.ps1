@@ -147,7 +147,7 @@
     .\01_Invoke-SsisModernizationAssessment.ps1 -PackageFolder 'C:\Repos\ETL\SSIS' -TargetSsisVersion 2022
 
 .NOTES
-    Version : 2.3.0
+    Version : 2.4.0
     Purpose : Replaces 01_run_dma_assessment.ps1 (which queried non-existent catalog columns and could not
               determine task types). This script does not use Data Migration Assistant.
     Compat  : Windows PowerShell 5.1 and PowerShell 7.x. No SqlServer module dependency (uses .NET SqlClient).
@@ -271,6 +271,19 @@ $RoutePlanning = [ordered]@{
 # estimate: (enabled tasks) + (data flow components) + 3 x (script tasks + script components) + event handlers
 # + error-row redirects + opaque SQL statements + 2 if transactions are required + 2 if checkpoints are on.
 $ComplexityBands = [ordered]@{ 'S' = 5; 'M' = 15; 'L' = 40 }
+# PackageLocation: where the scan found each package (SourceType -> label shown to readers).
+$PackageLocationLabel = [ordered]@{
+    'SSISDB'     = 'SSISDB'
+    'MSDB'       = 'MSDB'
+    'FileSystem' = 'File system'
+    'Ispac'      = 'File system (.ispac)'
+}
+$PackageLocationMeaning = @{
+    'SSISDB'     = 'Deployed to the SSIS catalog (SSISDB database) on ServerInstance: project deployment model.'
+    'MSDB'       = 'Stored in the msdb database on ServerInstance: legacy package deployment model.'
+    'FileSystem' = 'A .dtsx file read from disk (for example a source-control folder) with -Path.'
+    'Ispac'      = 'Inside a built project file (.ispac) read from disk with -Path.'
+}
 
 <#
     RULE TABLE
@@ -1447,11 +1460,15 @@ function New-SprintBacklog {
                      elseif ([int]$p.FailedExecutions -gt 0) { '{0} runs, {1} failed, in the last {2} days' -f $p.Executions, $p.FailedExecutions, $HistoryDays }
                      else { '{0} runs in the last {1} days' -f $p.Executions, $HistoryDays }
 
+            # Proposed default for the team to confirm: 'Review' only when SSISDB history shows no run in the window.
+            $isMigrating = if ($p.SourceType -eq 'SSISDB' -and [int]$p.Executions -eq 0) { 'Review' } else { 'Yes' }
+
             $rows.Add([PSCustomObject]@{
                 Environment = $p.Environment; ServerInstance = $p.ServerInstance
                 SourceServerName = $(if ($SourceServerNames.ContainsKey([string]$p.ServerInstance)) { $SourceServerNames[[string]$p.ServerInstance] } else { $p.ServerInstance })
                 Folder = $p.Folder; Project = $p.Project
-                Package = $p.Package; TargetPlatform = $plan.Platform; Route = $p.EffectiveRoute; WorkType = $plan.WorkType
+                Package = $p.Package; PackageLocation = $PackageLocationLabel[[string]$p.SourceType]; isMigrating = $isMigrating
+                TargetPlatform = $plan.Platform; Route = $p.EffectiveRoute; WorkType = $plan.WorkType
                 ComplexityBand = $band; ComplexityScore = $score; BuildOrder = $buildOrder
                 DependsOn = $p.ChildPackages
                 CalledBy = $(if ($calledBy.ContainsKey($p.Package)) { (@($calledBy[$p.Package]) | Sort-Object -Unique) -join '; ' } else { '' })
@@ -1582,8 +1599,8 @@ function Write-XlsxWorkbook {
 function Export-SprintBacklog {
     <# Writes sprint_backlog.csv and sprint_backlog.xlsx (Summary, Backlog, one sheet per platform, Legend). #>
     param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Backlog, [Parameter(Mandatory)][string]$Folder)
-    $columns = @('Environment', 'ServerInstance', 'SourceServerName', 'Folder', 'Project', 'Package', 'TargetPlatform', 'Route', 'WorkType',
-                 'ComplexityBand', 'ComplexityScore', 'BuildOrder', 'DependsOn', 'CalledBy', 'DecisionDrivers', 'AzureSsisIrFit',
+    $columns = @('Environment', 'ServerInstance', 'SourceServerName', 'Folder', 'Project', 'Package', 'PackageLocation', 'isMigrating',
+                 'TargetPlatform', 'Route', 'WorkType', 'ComplexityBand', 'ComplexityScore', 'BuildOrder', 'DependsOn', 'CalledBy', 'DecisionDrivers', 'AzureSsisIrFit',
                  'Removed2025', 'Usage', 'LastExecutionStart', 'AvgDurationMin', 'AgentJobs',
                  'BusinessOwner', 'Developer', 'Sprint', 'Status', 'Decision', 'Notes', 'WorkbookCreatedAt')
     # One creation time for the CSV and every sheet, local time with its UTC offset.
@@ -1629,6 +1646,16 @@ function Export-SprintBacklog {
         'Azure-SSIS IR'       = 'Option B: an Azure-managed cluster that runs SSIS packages without a VM. AzureSsisIrFit says how well each package would suit it.'
     }
     foreach ($t in $terms.Keys) { $legend.Add([PSCustomObject]@{ Item = 'Term'; Value = $t; TargetPlatform = ''; Meaning = $terms[$t]; WorkType = '' }) }
+    foreach ($k in $PackageLocationLabel.Keys) {
+        $legend.Add([PSCustomObject]@{ Item = 'PackageLocation'; Value = $PackageLocationLabel[$k]; TargetPlatform = ''; WorkType = ''
+            Meaning = $PackageLocationMeaning[$k] })
+    }
+    $legend.Add([PSCustomObject]@{ Item = 'isMigrating'; Value = 'Yes'; TargetPlatform = ''; WorkType = ''
+        Meaning = 'Planned for migration. This is the default; the team confirms it, or sets No for a package being retired.' })
+    $legend.Add([PSCustomObject]@{ Item = 'isMigrating'; Value = 'Review'; TargetPlatform = ''; WorkType = ''
+        Meaning = ('Deployed to SSISDB but not run in the last {0} days. Confirm with the business owner whether it is still needed, then set Yes or No.' -f $HistoryDays) })
+    $legend.Add([PSCustomObject]@{ Item = 'isMigrating'; Value = 'No'; TargetPlatform = ''; WorkType = ''
+        Meaning = 'Set by the team: the package will be retired, not migrated. The assessment never sets No on its own.' })
     $legend.Add([PSCustomObject]@{ Item = 'SourceServerName'; Value = ''; TargetPlatform = ''; WorkType = ''
         Meaning = 'Name the source SQL Server reports for itself (@@SERVERNAME), read at run time; ServerInstance is the name the assessment connected with. (file) for packages read from disk.' })
     $legend.Add([PSCustomObject]@{ Item = 'WorkbookCreatedAt'; Value = ''; TargetPlatform = ''; WorkType = ''
