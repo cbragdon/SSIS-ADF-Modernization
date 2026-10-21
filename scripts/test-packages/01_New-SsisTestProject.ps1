@@ -52,7 +52,7 @@
         T27_DynamicMail            Send Mail in OnError, expressions, attachment (G21)  -> AdfNative-Medium
 
     Components that are not installed on the build machine (for example the Attunity CDC and Oracle
-    components, which SQL Server 2025 removed) are skipped and listed in build_manifest.csv. Those
+    components, which SQL Server 2025 removed) are skipped and listed in build_manifest_<ProjectName>.csv. Those
     cases are covered instead by the offline XML fixtures in tests\fixtures.
 
     RUNNABLE VS PARSE-ONLY
@@ -78,7 +78,7 @@
     only when -ResolveMetadata is supplied, and then only reads table metadata.
 
 .PARAMETER OutputPath
-    Folder for build output (.ispac, build_manifest.csv, build log). Default: <repo>\build.
+    Folder for build output (.ispac, build_manifest_<ProjectName>.csv, build log). Default: <repo>\build.
 
 .PARAMETER SourcePath
     Folder where individual .dtsx files are written for source control review.
@@ -118,7 +118,9 @@
 
 .OUTPUTS
     <OutputPath>\<ProjectName>.ispac       deployable project
-    <OutputPath>\build_manifest.csv        one row per package: built, skipped components, expected route
+    <OutputPath>\build_manifest_<ProjectName>.csv  one row per package: built, skipped components, expected route.
+                                           One file per project, so building ParityTests never overwrites the
+                                           AssessmentTests manifest the routing test reads.
     <OutputPath>\build_<timestamp>.log     transcript
     <SourcePath>\*.dtsx                    individual packages for review / source control
 
@@ -135,7 +137,7 @@
     powershell.exe -File .\01_New-SsisTestProject.ps1 -Suite ParityTests -TestDbServer <DevSqlServer> -LandingPath '\\<FileServer>\ssis_landing'
 
 .NOTES
-    Version : 1.2.0
+    Version : 1.2.1
     Part of : SSIS-ADF-Modernization repository (scripts\test-packages)
     Status  : SQL Server 2025 (SSIS 17.0): AssessmentTests builds 26 of 27 packages with no warnings (T15
               skipped, CDC/Oracle components removed in 2025). ParityTests (v1.2.0) builds all nine packages,
@@ -240,7 +242,7 @@ using RtWrapper = Microsoft.SqlServer.Dts.Runtime.Wrapper;
 
 namespace SsisTestKit
 {
-    /// <summary>One row of build_manifest.csv.</summary>
+    /// <summary>One row of the build manifest.</summary>
     public class PackageResult
     {
         public string Package;
@@ -1836,6 +1838,7 @@ namespace SsisTestKit
 #region ---------------- 4. Manifest ----------------
     $manifest = foreach ($r in $builder.Results) {
         [PSCustomObject]@{
+            ProjectName            = $ProjectName
             Package                = $r.Package
             Built                  = $r.Built
             ExpectedRoute          = $r.ExpectedRoute
@@ -1847,13 +1850,14 @@ namespace SsisTestKit
             SsisAssemblyVersion    = $loaded.Version
         }
     }
-    $manifestPath = Join-Path $OutputPath 'build_manifest.csv'
+    # One manifest per project: a shared file was overwritten by whichever suite was built last.
+    $manifestPath = Join-Path $OutputPath ('build_manifest_{0}.csv' -f $ProjectName)
     $manifest | Export-Csv -Path $manifestPath -NoTypeInformation -Encoding UTF8
     $manifest | Format-Table Package, Built, ExpectedRoute, Runnable, SkippedItems -AutoSize | Out-String -Width 220 | Write-Host
 
     $built = @($manifest | Where-Object Built).Count
     Write-Log -Level OK -Message ("Built {0} of {1} packages -> {2}" -f $built, @($manifest).Count, $settings.IspacPath)
-    if (@($manifest | Where-Object { $_.Warnings }).Count -gt 0) { Write-Log -Level WARN -Message 'Some properties could not be set; see the Warnings column in build_manifest.csv.' }
+    if (@($manifest | Where-Object { $_.Warnings }).Count -gt 0) { Write-Log -Level WARN -Message 'Some properties could not be set; see the Warnings column in the build manifest.' }
     Write-Log -Message "Manifest: $manifestPath"
     Write-Log -Message 'Next: .\02_Deploy-SsisTestProject.ps1 -ServerInstance <DevServer>'
 }

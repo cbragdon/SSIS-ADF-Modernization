@@ -16,7 +16,7 @@
     Server
         Runs the assessment against the AssessmentTests project deployed by 02_Deploy-SsisTestProject.ps1
         and compares it with tests\expected\AssessmentTests_expected_routes.csv. Packages that the builder
-        skipped (component not installed; see build\build_manifest.csv) are reported SKIP, not FAIL.
+        skipped (component not installed; see build\build_manifest_<ProjectName>.csv) are reported SKIP, not FAIL.
 
     CHECKS
     ------
@@ -149,8 +149,17 @@ else {
         Start-Sleep -Seconds 1
         $runs[$ver] = Invoke-AssessmentRun $a
     }
-    $mPath = Join-Path $RepoRoot 'build\build_manifest.csv'
-    $manifest = if (Test-Path -LiteralPath $mPath) { @(Import-Csv $mPath) } else { @() }
+    # Per-project manifest (builder 1.2.1+). The shared build_manifest.csv of older builds is read only for its
+    # rows of this project: it holds whichever suite was built last.
+    $manifest = @()
+    foreach ($name in @(('build_manifest_{0}.csv' -f $ProjectName), 'build_manifest.csv')) {
+        $mPath = Join-Path $RepoRoot ('build\' + $name)
+        if (Test-Path -LiteralPath $mPath) {
+            $manifest = @(Import-Csv $mPath | Where-Object { -not $_.PSObject.Properties['ProjectName'] -or $_.ProjectName -eq $ProjectName })
+            if ($manifest.Count -gt 0) { Write-Result INFO "Build manifest: $mPath"; break }
+        }
+    }
+    if ($manifest.Count -eq 0) { Write-Result INFO "No build manifest for $ProjectName under build\: packages the builder skipped will report FAIL, not SKIP. Rebuild with 01_New-SsisTestProject.ps1 to restore it." }
 }
 
 foreach ($ver in $runs.Keys) {

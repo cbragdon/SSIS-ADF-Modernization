@@ -1,7 +1,7 @@
 # Test package catalog
 
 Two sets of test inputs exercise the assessment's routing rules. Expected routes for both live in
-`tests/expected/` and are the **single source of truth**; `build/build_manifest.csv` repeats them for
+`tests/expected/` and are the **single source of truth**; `build/build_manifest_<ProjectName>.csv` repeats them for
 convenience only.
 
 | Set | Where | Built by | Runs in | Purpose |
@@ -42,7 +42,7 @@ convenience only.
 | T27_DynamicMail | G21: Send Mail Task in an OnError handler; expression subject/body; local attachment | AdfNative-Medium | AdfNative-Medium | Parse only |
 
 T16–T27 were added in builder v1.1.0 and have not yet been built on SSIS. After the first build, check the
-`Warnings` and `SkippedItems` columns of `build_manifest.csv`, then run the Server-mode routing test.
+`Warnings` and `SkippedItems` columns of `build_manifest_AssessmentTests.csv`, then run the Server-mode routing test.
 
 ### Project-level objects
 
