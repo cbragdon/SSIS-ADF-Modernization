@@ -1,0 +1,98 @@
+{
+    "name": "pl_parity_G23_BlankNull",
+    "properties": {
+        "description": "G23 rewrite of P23_BlankNull: copy the file as text, then convert with the SSIS RetainNulls = False rules.",
+        "activities": [
+            {
+                "name": "Copy G23 file to stage",
+                "type": "Copy",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.00:30:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "typeProperties": {
+                    "source": {
+                        "type": "DelimitedTextSource",
+                        "storeSettings": {
+                            "type": "FileServerReadSettings",
+                            "recursive": false
+                        },
+                        "formatSettings": {
+                            "type": "DelimitedTextReadSettings"
+                        }
+                    },
+                    "sink": {
+                        "type": "SqlServerSink",
+                        "writeBehavior": "insert",
+                        "preCopyScript": "TRUNCATE TABLE pty.G23_AdfStage;"
+                    },
+                    "enableStaging": false
+                },
+                "inputs": [
+                    {
+                        "referenceName": "ds_Parity_InputCsv",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "FileName": "G23_blanks.csv",
+                            "Encoding": "WINDOWS-1252",
+                            "RowDelimiter": "\r\n"
+                        }
+                    }
+                ],
+                "outputs": [
+                    {
+                        "referenceName": "ds_Parity_SqlTable",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "Schema": "pty",
+                            "Table": "G23_AdfStage"
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "Convert to out_adf",
+                "description": "Same blank and NULL rules as the SSIS package.",
+                "type": "Script",
+                "dependsOn": [
+                    {
+                        "activity": "Copy G23 file to stage",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.00:30:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "linkedServiceName": {
+                    "referenceName": "ls_SsisAssessmentTest",
+                    "type": "LinkedServiceReference"
+                },
+                "typeProperties": {
+                    "scripts": [
+                        {
+                            "type": "NonQuery",
+                            "text": "INSERT out_adf.G23_BlankNull (Id, Code, Quantity, ShipDate, Note)\nSELECT CAST(Id AS int),\n       CAST(Code AS varchar(20)),                                   -- '' and ' ' stay as they are\n       ISNULL(CAST(NULLIF(LTRIM(RTRIM(Quantity)), '') AS int), 0),  -- empty integer field: 0 (SSIS RetainNulls = False)\n       CAST(NULLIF(LTRIM(RTRIM(ShipDate)), '') AS date),            -- empty date: NULL (the SSIS Derived Column)\n       CAST(Note AS varchar(50))\n  FROM pty.G23_AdfStage;"
+                        }
+                    ],
+                    "scriptBlockExecutionTimeout": "00:10:00"
+                }
+            }
+        ],
+        "folder": {
+            "name": "parity"
+        },
+        "annotations": [
+            "parity"
+        ]
+    }
+}

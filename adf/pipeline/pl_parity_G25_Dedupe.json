@@ -1,0 +1,59 @@
+{
+    "name": "pl_parity_G25_Dedupe",
+    "properties": {
+        "description": "G25 rewrite of P25_Dedupe with the surviving row made explicit.",
+        "activities": [
+            {
+                "name": "Dedupe customers",
+                "description": "Explicit tie-break that reproduces the SSIS Sort survivor.",
+                "type": "Copy",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.00:30:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "typeProperties": {
+                    "source": {
+                        "type": "SqlServerSource",
+                        "sqlReaderQuery": "SELECT CustomerKey, Email, UpdatedAt\n  FROM (SELECT CustomerKey, Email, UpdatedAt,\n               -- The SSIS Sort (remove duplicates on CustomerKey) kept the LAST row of each key in arrival order\n               -- (source ORDER BY CustomerKey, UpdatedAt DESC, RowId): the earliest UpdatedAt, then the highest RowId.\n               ROW_NUMBER() OVER (PARTITION BY CustomerKey ORDER BY UpdatedAt ASC, RowId DESC) AS rn\n          FROM pty.G25_Input) AS x\n WHERE rn = 1;",
+                        "queryTimeout": "00:10:00"
+                    },
+                    "sink": {
+                        "type": "SqlServerSink",
+                        "writeBehavior": "insert"
+                    },
+                    "enableStaging": false
+                },
+                "inputs": [
+                    {
+                        "referenceName": "ds_Parity_SqlTable",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "Schema": "pty",
+                            "Table": "G25_Input"
+                        }
+                    }
+                ],
+                "outputs": [
+                    {
+                        "referenceName": "ds_Parity_SqlTable",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "Schema": "out_adf",
+                            "Table": "G25_Dedupe"
+                        }
+                    }
+                ]
+            }
+        ],
+        "folder": {
+            "name": "parity"
+        },
+        "annotations": [
+            "parity"
+        ]
+    }
+}

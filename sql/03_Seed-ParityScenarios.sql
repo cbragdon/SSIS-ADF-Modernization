@@ -31,6 +31,9 @@
    G28 System variables      package/pipeline parameter RunDate    -> G28_SystemVars
    G29 Output file shapes    pty.G29_Input                         -> files under <LandingPath>\parity\G29\...
    G30 Empty result set      pty.G30_Driver (no rows)              -> run outcome (both sides should fail)
+
+ ADF staging (written only by the ADF pipelines in adf\)
+   pty.G23_AdfStage, pty.G24_AdfStage   flat-file rows as text before conversion
 ================================================================================
 */
 SET NOCOUNT ON;
@@ -178,6 +181,17 @@ END;', N'{s}', @schema);
     FETCH NEXT FROM s INTO @schema;
 END;
 CLOSE s; DEALLOCATE s;
+GO
+
+-------------------------------------------------------------------------------
+-- ADF staging: the G23 / G24 pipelines copy each file here as text (Copy activity,
+-- no type conversion), then a Script activity converts it into out_adf with the
+-- same rules the SSIS package applied. Emptied by the pipelines before each copy.
+-------------------------------------------------------------------------------
+IF OBJECT_ID(N'pty.G23_AdfStage', N'U') IS NULL
+CREATE TABLE pty.G23_AdfStage (Id nvarchar(50) NULL, Code nvarchar(100) NULL, Quantity nvarchar(50) NULL, ShipDate nvarchar(50) NULL, Note nvarchar(200) NULL);
+IF OBJECT_ID(N'pty.G24_AdfStage', N'U') IS NULL
+CREATE TABLE pty.G24_AdfStage (SourceFile nvarchar(260) NULL, Id nvarchar(50) NULL, NameAnsi nvarchar(100) NULL, NameUnicode nvarchar(100) NULL, Amount nvarchar(50) NULL, Ratio nvarchar(50) NULL);
 GO
 
 -------------------------------------------------------------------------------

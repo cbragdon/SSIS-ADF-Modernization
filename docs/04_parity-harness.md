@@ -19,6 +19,8 @@ rebuild can return different rows.
 | `scripts/parity/01_Invoke-ParityTest.ps1` | Runner: optionally runs SSIS (SSISDB) and ADF (REST), compares, writes a CSV report |
 | `scripts/parity/02_Test-ParityHarness.ps1` | Self-test on known-answer data; runs in CI against a SQL Server container |
 | `tests/parity/selftest/` | Known-answer table pairs and their expected results |
+| `scripts/test-packages/01_New-SsisTestProject.ps1 -Suite ParityTests` | Builds the SSIS side: `ParityTests` project, P22–P30 |
+| `adf/` | ADF side: linked services, datasets and the `pl_parity_*` pipelines |
 
 ## How the comparison works
 
@@ -61,7 +63,7 @@ The runner exits 0 when no case is `FAIL` or `ERROR`.
 
 | Case | Gap | What it proves |
 | --- | --- | --- |
-| G22-LOOKUP | G22 | Full-cache Lookup is case- and trailing-space-sensitive, never matches NULL, and keeps the first duplicate. A SQL join under a CI collation does none of those. |
+| G22-LOOKUP | G22 | Full-cache Lookup is case- and trailing-space-sensitive, matches NULL to a NULL reference key, and keeps the first duplicate. A SQL join under a CI collation does none of those. |
 | G23-BLANKNULL | G23 | Empty, quoted-empty and space-only flat file fields: `RetainNulls` vs ADF `treatEmptyAsNull` |
 | G24-TYPES | G24 | Code page 1252 vs UTF-8 with BOM, characters outside 1252 in `varchar`, silent truncation, decimal rounding |
 | G25-DEDUPE | G25 | Which duplicate survives when the sort key ties |
@@ -133,11 +135,49 @@ SELECT * FROM parity.vw_LatestResult ORDER BY CaseId;
 Each run is a row in `parity.Run` with the login, host and git commit, and every comparison is a row in
 `parity.Result`. Results are never deleted by the scripts.
 
-## What is not built yet
+## Scenario packages and pipelines
 
-* **The scenario packages and pipelines.** `parity_cases.csv` names them (`ParityTests` project,
-  `P22_LookupSemantics.dtsx` … `P30_EmptyResultSet.dtsx`, and `pl_parity_G22_Lookup` …). Until they exist,
-  run the comparison on outputs produced by hand, or let the runner report `ERROR` for the missing sides.
-  The SSIS packages need a Windows build machine with SSIS, so they follow in a separate change.
-* `-ExecuteSsis` and `-ExecuteAdf` are written against the documented SSISDB catalog procedures and the
-  ADF REST API (`createRun`, `pipelineruns`), but have not been run yet.
+**SSIS: `ParityTests` project, `P22_LookupSemantics` … `P30_EmptyResultSet`.** Built by the same builder as
+the assessment packages, with live column metadata from the test database, so every package runs:
+
+```powershell
+# Windows PowerShell 5.1 on a machine with SSIS; sql\01-03 applied first.
+# Copies tests\parity\data\*.csv to <LandingPath>\parity\in. LandingPath defaults to <repo>\build\landing.
+powershell.exe -File .\scripts\test-packages\01_New-SsisTestProject.ps1 -Suite ParityTests -TestDbServer <DevSqlServer> `
+    -LandingPath '\\<FileServer>\ssis_landing'
+.\scripts\test-packages\02_Deploy-SsisTestProject.ps1 -ServerInstance <DevSqlServer> -ConfirmDevelopment -ProjectName ParityTests
+.\scripts\parity\01_Invoke-ParityTest.ps1 -ServerInstance <DevSqlServer> -ExecuteSsis -LandingPath '\\<FileServer>\ssis_landing'
+```
+
+The runner executes without an environment reference unless `-SsisEnvironment` is given, so the
+project parameter defaults from the build apply. The SSISDB execution runs as the caller, who needs read
+access to `<LandingPath>\parity\in` and write access to `<LandingPath>\parity\G29`.
+
+**ADF: `adf\`.** Linked services, datasets and the nine `pl_parity_*` pipelines, in the layout of an ADF
+git repository. Placeholders (`<DevSqlServer>`, `<LandingPath>`, `<KeyVaultName>`, `<Domain>\<ServiceAccount>`)
+must be replaced, and the factory needs a self-hosted integration runtime named `ir_SelfHosted` that
+reaches the test server and the landing folder. See [adf/README.md](../adf/README.md). The pipelines have not
+run in a factory yet; `-ExecuteAdf` is still untested.
+
+### What the SSIS packages actually do (SQL Server 2025 CU9, SSIS 17.0)
+
+First live run on 2026-10-21. All nine packages ended as expected through SSISDB (`-ExecuteSsis`): eight
+succeeded, P30 failed at the Execute SQL Task. Several results differ from what the case notes assumed
+before the packages existed; the notes in `parity_cases.csv` now record the observed behaviour.
+
+| Gap | Observed SSIS behaviour |
+| --- | --- |
+| G22 | Full-cache Lookup is byte-exact (case and trailing spaces), keeps the first duplicate, and **matches a NULL input to a NULL reference key**. |
+| G23 | `RetainNulls = False`: empty and quoted-empty strings load as `''`, space-only as `' '`, empty integers as `0`. An empty `DT_DBDATE` field **fails the package** at the destination, so P23 reads the date as text and maps blank to NULL. |
+| G24 | Over-long text is cut silently when truncation is ignored. `DT_NUMERIC(9,2)` **truncates** (12.345 to 12.34, -0.005 to 0.00). Text outside code page 1252 is best-fit mapped into `varchar` (Ł to L, CJK to `?`). |
+| G25 | Sort with remove duplicates kept the **last** row of each key in arrival order in every run. Microsoft documents the survivor as arbitrary. |
+| G26 | With commit size 1 and an error output, `CHECK_CONSTRAINTS` rejects only the bad row; `FIRE_TRIGGERS` writes audit rows; KeepNulls off gives the column default. |
+| G30 | "Single Row result set is specified, but no rows were returned." The package fails before the next task. |
+
+### ADF rewrite logic, rehearsed in SQL
+
+Until a factory is available, the SQL inside the pipelines (Copy source queries and Script activities)
+was run by hand against `out_adf`, with the G23 and G24 stage tables filled with the text the Copy
+activity is expected to land. The harness then compared it with the SSIS output: G22–G28, 8 of 8 table cases
+PASS. This checks the rewrite rules, not ADF itself: file parsing (G23, G24), file writing (G29) and the
+G30 failure path are only proven by an `-ExecuteAdf` run.

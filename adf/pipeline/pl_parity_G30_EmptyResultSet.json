@@ -1,0 +1,98 @@
+{
+    "name": "pl_parity_G30_EmptyResultSet",
+    "properties": {
+        "description": "G30 rewrite of P30_EmptyResultSet. Lookup with firstRowOnly succeeds on an empty result and returns no firstRow, so the pipeline checks for it and fails at the step where the SSIS Execute SQL Task fails.",
+        "activities": [
+            {
+                "name": "Get driver row",
+                "type": "Lookup",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.00:30:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "typeProperties": {
+                    "source": {
+                        "type": "SqlServerSource",
+                        "sqlReaderQuery": "SELECT BatchId, FolderPath FROM pty.G30_Driver;"
+                    },
+                    "dataset": {
+                        "referenceName": "ds_Parity_SqlTable",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "Schema": "pty",
+                            "Table": "G30_Driver"
+                        }
+                    },
+                    "firstRowOnly": true
+                }
+            },
+            {
+                "name": "Driver row returned",
+                "type": "IfCondition",
+                "dependsOn": [
+                    {
+                        "activity": "Get driver row",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "typeProperties": {
+                    "expression": {
+                        "value": "@contains(activity('Get driver row').output, 'firstRow')",
+                        "type": "Expression"
+                    },
+                    "ifFalseActivities": [
+                        {
+                            "name": "Fail like SSIS",
+                            "type": "Fail",
+                            "dependsOn": [],
+                            "typeProperties": {
+                                "message": "Single Row result set is specified, but no rows were returned.",
+                                "errorCode": "G30_NO_ROWS"
+                            }
+                        }
+                    ],
+                    "ifTrueActivities": [
+                        {
+                            "name": "Use driver row",
+                            "description": "Runs only when the driver row exists.",
+                            "type": "Script",
+                            "dependsOn": [],
+                            "policy": {
+                                "timeout": "0.00:30:00",
+                                "retry": 0,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "linkedServiceName": {
+                                "referenceName": "ls_SsisAssessmentTest",
+                                "type": "LinkedServiceReference"
+                            },
+                            "typeProperties": {
+                                "scripts": [
+                                    {
+                                        "type": "NonQuery",
+                                        "text": "SELECT 1 AS Used;"
+                                    }
+                                ],
+                                "scriptBlockExecutionTimeout": "00:10:00"
+                            }
+                        }
+                    ]
+                }
+            }
+        ],
+        "folder": {
+            "name": "parity"
+        },
+        "annotations": [
+            "parity"
+        ]
+    }
+}

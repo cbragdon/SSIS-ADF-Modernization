@@ -1,0 +1,20 @@
+{
+    "name": "ds_Parity_G29_OutputFolder",
+    "properties": {
+        "description": "The G29 ADF output folder, for Get Metadata and Delete.",
+        "linkedServiceName": {
+            "referenceName": "ls_ParityLanding",
+            "type": "LinkedServiceReference"
+        },
+        "folder": {
+            "name": "parity"
+        },
+        "type": "Binary",
+        "typeProperties": {
+            "location": {
+                "type": "FileServerLocation",
+                "folderPath": "parity/G29/adf"
+            }
+        }
+    }
+}

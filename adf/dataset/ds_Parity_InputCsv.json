@@ -1,0 +1,51 @@
+{
+    "name": "ds_Parity_InputCsv",
+    "properties": {
+        "description": "Parity input file under <LandingPath>\\parity\\in, read as text. nullValue is a marker that never occurs, so an empty field stays an empty string (SSIS RetainNulls = False) instead of becoming NULL.",
+        "linkedServiceName": {
+            "referenceName": "ls_ParityLanding",
+            "type": "LinkedServiceReference"
+        },
+        "folder": {
+            "name": "parity"
+        },
+        "parameters": {
+            "FileName": {
+                "type": "string"
+            },
+            "Encoding": {
+                "type": "string",
+                "defaultValue": "WINDOWS-1252"
+            },
+            "RowDelimiter": {
+                "type": "string",
+                "defaultValue": "\r\n"
+            }
+        },
+        "type": "DelimitedText",
+        "typeProperties": {
+            "location": {
+                "type": "FileServerLocation",
+                "folderPath": "parity/in",
+                "fileName": {
+                    "value": "@dataset().FileName",
+                    "type": "Expression"
+                }
+            },
+            "columnDelimiter": ",",
+            "rowDelimiter": {
+                "value": "@dataset().RowDelimiter",
+                "type": "Expression"
+            },
+            "encodingName": {
+                "value": "@dataset().Encoding",
+                "type": "Expression"
+            },
+            "escapeChar": "\\",
+            "quoteChar": "\"",
+            "firstRowAsHeader": true,
+            "nullValue": "\\N"
+        },
+        "schema": []
+    }
+}

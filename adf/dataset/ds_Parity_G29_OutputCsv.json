@@ -1,0 +1,36 @@
+{
+    "name": "ds_Parity_G29_OutputCsv",
+    "properties": {
+        "description": "G29 output file under <LandingPath>\\parity\\G29\\adf. Same shape as the SSIS Flat File connection: code page 1252, CRLF, header row, no text qualifier.",
+        "linkedServiceName": {
+            "referenceName": "ls_ParityLanding",
+            "type": "LinkedServiceReference"
+        },
+        "folder": {
+            "name": "parity"
+        },
+        "parameters": {
+            "FileName": {
+                "type": "string"
+            }
+        },
+        "type": "DelimitedText",
+        "typeProperties": {
+            "location": {
+                "type": "FileServerLocation",
+                "folderPath": "parity/G29/adf",
+                "fileName": {
+                    "value": "@dataset().FileName",
+                    "type": "Expression"
+                }
+            },
+            "columnDelimiter": ",",
+            "rowDelimiter": "\r\n",
+            "encodingName": "WINDOWS-1252",
+            "escapeChar": "",
+            "quoteChar": "",
+            "firstRowAsHeader": true
+        },
+        "schema": []
+    }
+}

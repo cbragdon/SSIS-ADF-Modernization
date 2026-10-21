@@ -1,0 +1,59 @@
+{
+    "name": "pl_parity_G27_ProcSource",
+    "properties": {
+        "description": "G27 rewrite of P27_ProcSource: the same procedure call with WITH RESULT SETS, so the source schema is declared rather than discovered.",
+        "activities": [
+            {
+                "name": "Copy from procedure",
+                "description": "Procedure with a temp table as the source.",
+                "type": "Copy",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.00:30:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "typeProperties": {
+                    "source": {
+                        "type": "SqlServerSource",
+                        "sqlReaderQuery": "EXEC pty.usp_G27_Source @Region = 'east' WITH RESULT SETS ((CustomerId int NOT NULL, Region varchar(10) NOT NULL, TotalAmount decimal(14, 2) NOT NULL, OrderCount int NOT NULL));",
+                        "queryTimeout": "00:10:00"
+                    },
+                    "sink": {
+                        "type": "SqlServerSink",
+                        "writeBehavior": "insert"
+                    },
+                    "enableStaging": false
+                },
+                "inputs": [
+                    {
+                        "referenceName": "ds_Parity_SqlTable",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "Schema": "pty",
+                            "Table": "G22_Input"
+                        }
+                    }
+                ],
+                "outputs": [
+                    {
+                        "referenceName": "ds_Parity_SqlTable",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "Schema": "out_adf",
+                            "Table": "G27_ProcSource"
+                        }
+                    }
+                ]
+            }
+        ],
+        "folder": {
+            "name": "parity"
+        },
+        "annotations": [
+            "parity"
+        ]
+    }
+}
