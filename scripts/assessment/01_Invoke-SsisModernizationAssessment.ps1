@@ -204,6 +204,7 @@ $Evidence    = New-Object System.Collections.Generic.List[object]   # one row pe
 $Connections = New-Object System.Collections.Generic.List[object]   # one row per connection manager
 $JobSteps    = New-Object System.Collections.Generic.List[object]   # SSIS Agent job steps
 $Errors      = New-Object System.Collections.Generic.List[object]   # non-fatal failures
+$SourceServerNames = @{}   # -ServerInstance as given -> @@SERVERNAME reported by that server (read at run time)
 
 function Write-Log {
     <# Structured console + transcript logging. Level drives colour and the prefix used for grepping logs. #>
@@ -1156,10 +1157,12 @@ function Invoke-ServerAssessment {
 SELECT CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(128)) AS ProductVersion,
        CAST(SERVERPROPERTY('ProductMajorVersion') AS int)      AS MajorVersion,
        CAST(SERVERPROPERTY('Edition') AS nvarchar(128))        AS Edition,
+       CAST(@@SERVERNAME AS nvarchar(128))                     AS ServerName,
        CASE WHEN DB_ID('SSISDB') IS NULL THEN 0 ELSE 1 END     AS HasSsisdb;
 "@
     }
     catch { Add-AssessmentError -Server $Server -Scope 'Connect' -Object $Server -Message $_.Exception.Message; return }
+    $SourceServerNames[$Server] = [string]$info.ServerName
     Write-Log -Message ("  SQL Server {0} ({1}), SSISDB present: {2}" -f $info.ProductVersion, $info.Edition, [bool]$info.HasSsisdb)
     if ($info.MajorVersion -lt 13) { Write-Log -Level WARN -Message '  Source is older than SQL Server 2016; outside the validated range but will be attempted.' }
 
@@ -1445,7 +1448,9 @@ function New-SprintBacklog {
                      else { '{0} runs in the last {1} days' -f $p.Executions, $HistoryDays }
 
             $rows.Add([PSCustomObject]@{
-                Environment = $p.Environment; ServerInstance = $p.ServerInstance; Folder = $p.Folder; Project = $p.Project
+                Environment = $p.Environment; ServerInstance = $p.ServerInstance
+                SourceServerName = $(if ($SourceServerNames.ContainsKey([string]$p.ServerInstance)) { $SourceServerNames[[string]$p.ServerInstance] } else { $p.ServerInstance })
+                Folder = $p.Folder; Project = $p.Project
                 Package = $p.Package; TargetPlatform = $plan.Platform; Route = $p.EffectiveRoute; WorkType = $plan.WorkType
                 ComplexityBand = $band; ComplexityScore = $score; BuildOrder = $buildOrder
                 DependsOn = $p.ChildPackages
@@ -1577,10 +1582,13 @@ function Write-XlsxWorkbook {
 function Export-SprintBacklog {
     <# Writes sprint_backlog.csv and sprint_backlog.xlsx (Summary, Backlog, one sheet per platform, Legend). #>
     param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Backlog, [Parameter(Mandatory)][string]$Folder)
-    $columns = @('Environment', 'ServerInstance', 'Folder', 'Project', 'Package', 'TargetPlatform', 'Route', 'WorkType',
+    $columns = @('Environment', 'ServerInstance', 'SourceServerName', 'Folder', 'Project', 'Package', 'TargetPlatform', 'Route', 'WorkType',
                  'ComplexityBand', 'ComplexityScore', 'BuildOrder', 'DependsOn', 'CalledBy', 'DecisionDrivers', 'AzureSsisIrFit',
                  'Removed2025', 'Usage', 'LastExecutionStart', 'AvgDurationMin', 'AgentJobs',
-                 'BusinessOwner', 'Developer', 'Sprint', 'Status', 'Decision', 'Notes')
+                 'BusinessOwner', 'Developer', 'Sprint', 'Status', 'Decision', 'Notes', 'WorkbookCreatedAt')
+    # One creation time for the CSV and every sheet, local time with its UTC offset.
+    $createdAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz')
+    $Backlog = @($Backlog | Select-Object *, @{ Name = 'WorkbookCreatedAt'; Expression = { $createdAt } })
     $Backlog | Select-Object $columns | Export-Csv -Path (Join-Path $Folder 'sprint_backlog.csv') -NoTypeInformation -Encoding UTF8
 
     $platforms = @($RoutePlanning.Values | Sort-Object { $_.Order } | ForEach-Object { $_.Platform } | Select-Object -Unique)
@@ -1621,6 +1629,10 @@ function Export-SprintBacklog {
         'Azure-SSIS IR'       = 'Option B: an Azure-managed cluster that runs SSIS packages without a VM. AzureSsisIrFit says how well each package would suit it.'
     }
     foreach ($t in $terms.Keys) { $legend.Add([PSCustomObject]@{ Item = 'Term'; Value = $t; TargetPlatform = ''; Meaning = $terms[$t]; WorkType = '' }) }
+    $legend.Add([PSCustomObject]@{ Item = 'SourceServerName'; Value = ''; TargetPlatform = ''; WorkType = ''
+        Meaning = 'Name the source SQL Server reports for itself (@@SERVERNAME), read at run time; ServerInstance is the name the assessment connected with. (file) for packages read from disk.' })
+    $legend.Add([PSCustomObject]@{ Item = 'WorkbookCreatedAt'; Value = ''; TargetPlatform = ''; WorkType = ''
+        Meaning = 'Local date and time (with UTC offset) the CSV and workbook were written.' })
 
     $sheets = New-Object System.Collections.Generic.List[object]
     $sheets.Add(@{ Name = 'Summary'; Columns = @('Environment', 'TargetPlatform', 'Packages') + $bandNames; Rows = $summary })
