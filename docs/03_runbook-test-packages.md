@@ -22,7 +22,7 @@ The simplest build machine is the Dev SSIS server itself, which already has the 
 ```powershell
 .\scripts\test-packages\03_Test-AssessmentRouting.ps1
 ```
-Expect `22 passed, 0 failed`. If this fails, stop: the assessment script or the fixtures changed.
+Expect `48 passed, 0 failed`. If this fails, stop: the assessment script or the fixtures changed.
 
 ## 2. Build the project
 

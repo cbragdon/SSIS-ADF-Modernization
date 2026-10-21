@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<!-- G05: the flat file connection has no static path; its expression builds a UNC path from a variable whose
+     default is a share, inside a Foreach ADO loop over a file list. The literal-only check cannot see it. -->
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:refId="Package" DTS:ExecutableType="Microsoft.Package" DTS:ObjectName="DynamicPaths">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[Inbound file]" DTS:CreationName="FLATFILE" DTS:DTSID="{C0000005-0000-0000-0000-000000000001}" DTS:ObjectName="Inbound file">
+      <DTS:PropertyExpression DTS:Name="ConnectionString">@[User::InboundFolder] + @[User::FileName]</DTS:PropertyExpression>
+      <DTS:ObjectData><DTS:ConnectionManager DTS:ConnectionString="" /></DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+  <DTS:Variables>
+    <DTS:Variable DTS:Namespace="User" DTS:ObjectName="InboundFolder" DTS:EvaluateAsExpression="True" DTS:Expression="&quot;\\\\fileserver\\inbound\\&quot; + @[User::Region] + &quot;\\&quot;">
+      <DTS:VariableValue DTS:DataType="8"></DTS:VariableValue>
+    </DTS:Variable>
+    <DTS:Variable DTS:Namespace="User" DTS:ObjectName="Region"><DTS:VariableValue DTS:DataType="8">east</DTS:VariableValue></DTS:Variable>
+    <DTS:Variable DTS:Namespace="User" DTS:ObjectName="FileName"><DTS:VariableValue DTS:DataType="8"></DTS:VariableValue></DTS:Variable>
+    <DTS:Variable DTS:Namespace="User" DTS:ObjectName="FileList"><DTS:VariableValue DTS:DataType="13" /></DTS:Variable>
+  </DTS:Variables>
+  <DTS:Executables>
+    <DTS:Executable DTS:refId="Package\Get file list" DTS:ExecutableType="Microsoft.ExecuteSQLTask" DTS:ObjectName="Get file list" />
+    <DTS:Executable DTS:refId="Package\Each file" DTS:ExecutableType="STOCK:FOREACHLOOP" DTS:ObjectName="Each file">
+      <DTS:ForEachEnumerator DTS:CreationName="Microsoft.ForEachADOEnumerator" />
+      <DTS:Executables>
+        <DTS:Executable DTS:refId="Package\Each file\Load file" DTS:ExecutableType="Microsoft.Pipeline" DTS:ObjectName="Load file">
+          <DTS:ObjectData><pipeline version="1"><components>
+            <component refId="a" componentClassID="Microsoft.FlatFileSource" name="Read file" />
+            <component refId="b" componentClassID="Microsoft.OLEDBDestination" name="Dest" />
+          </components></pipeline></DTS:ObjectData>
+        </DTS:Executable>
+      </DTS:Executables>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

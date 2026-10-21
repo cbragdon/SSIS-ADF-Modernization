@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<!-- G06: the Script Task itself is enabled, but its Sequence container is disabled, so it never runs.
+     Complements T09 (a disabled task directly under the package). -->
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:refId="Package" DTS:ExecutableType="Microsoft.Package" DTS:ObjectName="DisabledContainer">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:Executables>
+    <DTS:Executable DTS:refId="Package\Refresh" DTS:ExecutableType="Microsoft.ExecuteSQLTask" DTS:ObjectName="Refresh" />
+    <DTS:Executable DTS:refId="Package\Old prep" DTS:ExecutableType="STOCK:SEQUENCE" DTS:ObjectName="Old prep" DTS:Disabled="True">
+      <DTS:Executables>
+        <DTS:Executable DTS:refId="Package\Old prep\Inner" DTS:ExecutableType="STOCK:SEQUENCE" DTS:ObjectName="Inner">
+          <DTS:Executables>
+            <DTS:Executable DTS:refId="Package\Old prep\Inner\Rename files" DTS:ExecutableType="Microsoft.ScriptTask" DTS:ObjectName="Rename files" />
+          </DTS:Executables>
+        </DTS:Executable>
+      </DTS:Executables>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

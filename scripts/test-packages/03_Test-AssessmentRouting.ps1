@@ -21,6 +21,8 @@
     CHECKS
     ------
     * PackageRoute and EffectiveRoute equal the expected values.
+    * Every token in the optional ExpectedReasons column ('|'-separated) appears in RouteReasons, so a
+      case is proven to route for the right reason, not just to the right route.
     * Every expected package was found (missing = FAIL unless the build manifest says it was skipped).
     * No secret test value appears in any assessment output file (password masking).
     * The assessment reported zero errors (errors.csv empty).
@@ -46,7 +48,7 @@
     .\03_Test-AssessmentRouting.ps1 -Mode Server -ServerInstance <DevSqlServer> -TrustServerCertificate
 
 .NOTES
-    Version : 1.0.0
+    Version : 1.1.0
     Compat  : Windows PowerShell 5.1 and PowerShell 7.x.
 #>
 [CmdletBinding()]
@@ -154,6 +156,16 @@ foreach ($ver in $runs.Keys) {
                 Target = $ver; Check = $pair[0]; Package = "$($e.Project)\$($e.Package)"
                 Expected = $pair[1]; Actual = $a.($pair[0]); Status = $(if ($ok) { 'PASS' } else { 'FAIL' })
             })
+        }
+        # Optional reason checks: each token must appear in the package's RouteReasons (case-insensitive).
+        if ($e.PSObject.Properties['ExpectedReasons'] -and $e.ExpectedReasons) {
+            foreach ($token in ($e.ExpectedReasons -split '\|' | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
+                $ok = ([string]$a.RouteReasons).IndexOf($token, [StringComparison]::OrdinalIgnoreCase) -ge 0
+                $results.Add([PSCustomObject]@{
+                    Target = $ver; Check = 'RouteReason'; Package = "$($e.Project)\$($e.Package)"
+                    Expected = $token; Actual = $(if ($ok) { 'present' } else { 'missing' }); Status = $(if ($ok) { 'PASS' } else { 'FAIL' })
+                })
+            }
         }
     }
 }

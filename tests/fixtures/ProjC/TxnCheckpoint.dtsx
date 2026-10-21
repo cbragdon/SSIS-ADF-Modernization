@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<!-- G08: a Sequence container with TransactionOption=Required (MSDTC) around two Execute SQL Tasks, and
+     checkpoint restart enabled on the package. Both change failure semantics in an ADF rebuild. -->
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:refId="Package" DTS:ExecutableType="Microsoft.Package" DTS:ObjectName="TxnCheckpoint"
+    DTS:CheckpointFileName="C:\SSIS\Checkpoints\TxnCheckpoint.chk" DTS:CheckpointUsage="1" DTS:SaveCheckpoints="True">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:Executables>
+    <DTS:Executable DTS:refId="Package\Post batch" DTS:ExecutableType="STOCK:SEQUENCE" DTS:ObjectName="Post batch" DTS:TransactionOption="2">
+      <DTS:Executables>
+        <DTS:Executable DTS:refId="Package\Post batch\Insert header" DTS:ExecutableType="Microsoft.ExecuteSQLTask" DTS:ObjectName="Insert header" />
+        <DTS:Executable DTS:refId="Package\Post batch\Insert lines" DTS:ExecutableType="Microsoft.ExecuteSQLTask" DTS:ObjectName="Insert lines" />
+      </DTS:Executables>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

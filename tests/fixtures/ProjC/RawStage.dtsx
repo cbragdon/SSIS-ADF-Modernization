@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<!-- G02: Raw File staging between data flows. ADF has no SSIS Raw format, so this is not a Copy activity job. -->
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:refId="Package" DTS:ExecutableType="Microsoft.Package" DTS:ObjectName="RawStage">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:Executables>
+    <DTS:Executable DTS:refId="Package\Extract to Raw" DTS:ExecutableType="Microsoft.Pipeline" DTS:ObjectName="Extract to Raw">
+      <DTS:ObjectData><pipeline version="1"><components>
+        <component refId="a" componentClassID="Microsoft.OLEDBSource" name="Src" />
+        <component refId="b" componentClassID="Microsoft.RawDestination" name="Raw Out" />
+      </components></pipeline></DTS:ObjectData>
+    </DTS:Executable>
+    <DTS:Executable DTS:refId="Package\Load from Raw" DTS:ExecutableType="Microsoft.Pipeline" DTS:ObjectName="Load from Raw">
+      <DTS:ObjectData><pipeline version="1"><components>
+        <component refId="c" componentClassID="Microsoft.RawSource" name="Raw In" />
+        <component refId="d" componentClassID="Microsoft.OLEDBDestination" name="Dest" />
+      </components></pipeline></DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

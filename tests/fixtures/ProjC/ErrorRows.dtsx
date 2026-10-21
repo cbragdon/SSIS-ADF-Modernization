@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<!-- G01: error-row redirection. Data Conversion sends failing/truncated rows to an error table.
+     Without the error outputs this package is a plain copy (AdfNative-Low); with them it needs a Mapping Data Flow. -->
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:refId="Package" DTS:ExecutableType="Microsoft.Package" DTS:ObjectName="ErrorRows">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[Stage]" DTS:CreationName="OLEDB" DTS:DTSID="{C0000001-0000-0000-0000-000000000001}" DTS:ObjectName="Stage">
+      <DTS:ObjectData><DTS:ConnectionManager DTS:ConnectionString="Data Source=SRC;Initial Catalog=Stage;Provider=MSOLEDBSQL.1;User ID=etl;Password=hunter2;" /></DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+  <DTS:Executables>
+    <DTS:Executable DTS:refId="Package\Truncate" DTS:ExecutableType="Microsoft.ExecuteSQLTask" DTS:ObjectName="Truncate" />
+    <DTS:Executable DTS:refId="Package\Load Orders" DTS:ExecutableType="Microsoft.Pipeline" DTS:ObjectName="Load Orders">
+      <DTS:ObjectData><pipeline version="1"><components>
+        <component refId="Package\Load Orders\Src" componentClassID="Microsoft.OLEDBSource" name="Src" />
+        <component refId="Package\Load Orders\Conv" componentClassID="Microsoft.DataConvert" name="Conv">
+          <outputs>
+            <output refId="Package\Load Orders\Conv.Outputs[Data Conversion Output]" name="Data Conversion Output">
+              <outputColumns>
+                <outputColumn refId="Package\Load Orders\Conv.Outputs[Data Conversion Output].Columns[OrderDate]" name="OrderDate" errorRowDisposition="RedirectRow" truncationRowDisposition="RedirectRow" />
+              </outputColumns>
+            </output>
+            <output refId="Package\Load Orders\Conv.Outputs[Data Conversion Error Output]" name="Data Conversion Error Output" isErrorOut="true" />
+          </outputs>
+        </component>
+        <component refId="Package\Load Orders\Dest" componentClassID="Microsoft.OLEDBDestination" name="Dest" />
+        <component refId="Package\Load Orders\Errors" componentClassID="Microsoft.OLEDBDestination" name="Errors" />
+      </components></pipeline></DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

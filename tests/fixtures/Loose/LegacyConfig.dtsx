@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<!-- G07: package deployment model. Four configuration types (file, SQL Server table, environment variable,
+     parent variable) and an Execute Package Task that runs a child from the file system, not by project reference. -->
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:refId="Package" DTS:ExecutableType="Microsoft.Package" DTS:ObjectName="LegacyConfig" DTS:EnableConfig="True">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:Configurations>
+    <DTS:Configuration DTS:ConfigurationType="1" DTS:ConfigurationString="C:\SSIS\Config\LegacyConfig.dtsConfig" DTS:DTSID="{C0000007-0000-0000-0000-0000000000C1}" DTS:ObjectName="XML file" />
+    <DTS:Configuration DTS:ConfigurationType="7" DTS:ConfigurationString="&quot;Config db&quot;;&quot;[dbo].[SSIS Configurations]&quot;;&quot;LegacyConfig&quot;;" DTS:DTSID="{C0000007-0000-0000-0000-0000000000C2}" DTS:ObjectName="SQL table" />
+    <DTS:Configuration DTS:ConfigurationType="2" DTS:ConfigurationString="ETL_ENV" DTS:DTSID="{C0000007-0000-0000-0000-0000000000C3}" DTS:ObjectName="Environment" />
+    <DTS:Configuration DTS:ConfigurationType="0" DTS:ConfigurationString="BatchId" DTS:DTSID="{C0000007-0000-0000-0000-0000000000C4}" DTS:ObjectName="Parent BatchId" />
+  </DTS:Configurations>
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[Config db]" DTS:CreationName="OLEDB" DTS:DTSID="{C0000007-0000-0000-0000-000000000001}" DTS:ObjectName="Config db">
+      <DTS:ObjectData><DTS:ConnectionManager DTS:ConnectionString="Data Source=SRC;Initial Catalog=SsisConfig;Provider=MSOLEDBSQL.1;User ID=etl;" /></DTS:ObjectData>
+    </DTS:ConnectionManager>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[Child package]" DTS:CreationName="FILE" DTS:DTSID="{C0000007-0000-0000-0000-000000000002}" DTS:ObjectName="Child package">
+      <DTS:ObjectData><DTS:ConnectionManager DTS:FileUsageType="0" DTS:ConnectionString="\\fileserver\ssis\LegacyChild.dtsx" /></DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+  <DTS:Executables>
+    <DTS:Executable DTS:refId="Package\Log start" DTS:ExecutableType="Microsoft.ExecuteSQLTask" DTS:ObjectName="Log start" />
+    <DTS:Executable DTS:refId="Package\Run child" DTS:ExecutableType="Microsoft.ExecutePackageTask" DTS:ObjectName="Run child">
+      <DTS:ObjectData><ExecutePackageTask><UseProjectReference>False</UseProjectReference><Connection>{C0000007-0000-0000-0000-000000000002}</Connection></ExecutePackageTask></DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<!-- G09: a plain copy with all five classic log providers. The text, XML and Profiler providers write to local
+     files through FILE connections that nothing else uses; they must not raise the route. -->
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:refId="Package" DTS:ExecutableType="Microsoft.Package" DTS:ObjectName="LoggingProviders">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[Src]" DTS:CreationName="OLEDB" DTS:DTSID="{C0000009-0000-0000-0000-000000000001}" DTS:ObjectName="Src">
+      <DTS:ObjectData><DTS:ConnectionManager DTS:ConnectionString="Data Source=SRC;Initial Catalog=Sales;Provider=MSOLEDBSQL.1;User ID=etl;" /></DTS:ObjectData>
+    </DTS:ConnectionManager>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[Log text]" DTS:CreationName="FILE" DTS:DTSID="{C0000009-0000-0000-0000-000000000002}" DTS:ObjectName="Log text">
+      <DTS:ObjectData><DTS:ConnectionManager DTS:FileUsageType="0" DTS:ConnectionString="C:\SSIS\Logs\LoggingProviders.txt" /></DTS:ObjectData>
+    </DTS:ConnectionManager>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[Log xml]" DTS:CreationName="FILE" DTS:DTSID="{C0000009-0000-0000-0000-000000000003}" DTS:ObjectName="Log xml">
+      <DTS:ObjectData><DTS:ConnectionManager DTS:FileUsageType="0" DTS:ConnectionString="C:\SSIS\Logs\LoggingProviders.xml" /></DTS:ObjectData>
+    </DTS:ConnectionManager>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[Log trace]" DTS:CreationName="FILE" DTS:DTSID="{C0000009-0000-0000-0000-000000000004}" DTS:ObjectName="Log trace">
+      <DTS:ObjectData><DTS:ConnectionManager DTS:FileUsageType="0" DTS:ConnectionString="\\fileserver\logs\LoggingProviders.trc" /></DTS:ObjectData>
+    </DTS:ConnectionManager>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[Log db]" DTS:CreationName="OLEDB" DTS:DTSID="{C0000009-0000-0000-0000-000000000005}" DTS:ObjectName="Log db">
+      <DTS:ObjectData><DTS:ConnectionManager DTS:ConnectionString="Data Source=LOGDB;Initial Catalog=SsisLog;Provider=MSOLEDBSQL.1;Integrated Security=SSPI;" /></DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+  <DTS:LogProviders>
+    <DTS:LogProvider DTS:ConfigString="Log text" DTS:CreationName="Microsoft.LogProviderTextFile" DTS:DTSID="{C0000009-0000-0000-0000-0000000000A1}" DTS:ObjectName="SSIS log provider for Text files"><DTS:ObjectData><InnerObject /></DTS:ObjectData></DTS:LogProvider>
+    <DTS:LogProvider DTS:ConfigString="{C0000009-0000-0000-0000-000000000003}" DTS:CreationName="Microsoft.LogProviderXMLFile" DTS:DTSID="{C0000009-0000-0000-0000-0000000000A2}" DTS:ObjectName="SSIS log provider for XML files"><DTS:ObjectData><InnerObject /></DTS:ObjectData></DTS:LogProvider>
+    <DTS:LogProvider DTS:ConfigString="Log trace" DTS:CreationName="Microsoft.LogProviderSQLProfiler" DTS:DTSID="{C0000009-0000-0000-0000-0000000000A3}" DTS:ObjectName="SSIS log provider for SQL Server Profiler"><DTS:ObjectData><InnerObject /></DTS:ObjectData></DTS:LogProvider>
+    <DTS:LogProvider DTS:ConfigString="Log db" DTS:CreationName="Microsoft.LogProviderSQLServer" DTS:DTSID="{C0000009-0000-0000-0000-0000000000A4}" DTS:ObjectName="SSIS log provider for SQL Server"><DTS:ObjectData><InnerObject /></DTS:ObjectData></DTS:LogProvider>
+    <DTS:LogProvider DTS:ConfigString="" DTS:CreationName="Microsoft.LogProviderEventLog" DTS:DTSID="{C0000009-0000-0000-0000-0000000000A5}" DTS:ObjectName="SSIS log provider for Windows Event Log"><DTS:ObjectData><InnerObject /></DTS:ObjectData></DTS:LogProvider>
+  </DTS:LogProviders>
+  <DTS:Executables>
+    <DTS:Executable DTS:refId="Package\Copy" DTS:ExecutableType="Microsoft.Pipeline" DTS:ObjectName="Copy">
+      <DTS:ObjectData><pipeline version="1"><components>
+        <component refId="a" componentClassID="Microsoft.OLEDBSource" name="S" connectionManagerID="Package.ConnectionManagers[Src]" />
+        <component refId="b" componentClassID="Microsoft.OLEDBDestination" name="D" connectionManagerID="Package.ConnectionManagers[Src]" />
+      </components></pipeline></DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

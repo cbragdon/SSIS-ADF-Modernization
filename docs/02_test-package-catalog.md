@@ -50,9 +50,22 @@ convenience only.
 | `Loose/ThirdParty.dtsx` | Unrecognised third-party task; Foreach File Enumerator | KeepOnSsisVm | — |
 | `Loose/Encrypted.dtsx` | `EncryptAllWithPassword` body | ReviewRequired | — |
 | `Loose/Legacy2008.dtsx` | PackageFormatVersion 3 | ReviewRequired | — |
+| `Loose/LegacyConfig.dtsx` | G07: package configurations (file, SQL table, environment variable, parent variable); file-system child package | AdfNative-Medium → **ReviewRequired** (unresolved child) | — |
+| `ProjC/ErrorRows.dtsx` | G01: Data Conversion error/truncation rows redirected to an error table | AdfNative-Medium | — |
+| `ProjC/RawStage.dtsx` | G02: Raw File Destination and Source staging (no ADF equivalent format) | AdfNative-Medium | — |
+| `ProjC/DynamicPaths.dtsx` | G05: flat file path built by expression from a variable expression (UNC); Foreach ADO enumerator | AdfNative-Medium, reason "set by expression" | — |
+| `ProjC/DisabledContainer.dtsx` | G06: enabled Script Task inside a disabled Sequence container | AdfNative-Low | — |
+| `ProjC/TxnCheckpoint.dtsx` | G08: `TransactionOption=Required` container (MSDTC); checkpoint restart | AdfNative-Medium | — |
+| `ProjC/LoggingProviders.dtsx` | G09: five log providers; file and Windows-auth connections used only for logging | AdfNative-Low | — |
+| `ProjC/LoggingSharedConn.dtsx` | G09 control: log file connection also used by a File System Task | AdfNative-Medium | — |
+
+`G01`–`G09` refer to the SSIS test package gap analysis (TechBrothersIT scenario review). The `ExpectedReasons`
+column in `tests/expected/fixtures_expected_routes.csv` lists `|`-separated text that must appear in the
+package's `RouteReasons`, so these cases prove the route is right for the right reason.
 
 ## Adding a test case
 
 1. Add the package (builder method or fixture file).
-2. Add its row to the matching `tests/expected/*.csv`, with what it covers.
+2. Add its row to the matching `tests/expected/*.csv`, with what it covers. In the fixtures file, fill
+   `ExpectedReasons` when the route alone cannot prove the rule fired.
 3. Run `03_Test-AssessmentRouting.ps1` locally; commit both together. CI runs the fixtures on every push.

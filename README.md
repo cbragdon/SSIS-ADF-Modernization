@@ -105,7 +105,7 @@ easier than the children it runs. `AzureSsisIrFit` reports Option B suitability 
 
 | Component | State |
 | --- | --- |
-| `01_Invoke-SsisModernizationAssessment.ps1` | Runs. Offline fixtures pass (22/22). SSISDB/msdb/Agent queries not yet run against a live server. |
+| `01_Invoke-SsisModernizationAssessment.ps1` | Runs. Offline fixtures pass (48/48 checks, including route-reason checks). Routes for the 14 live-built AssessmentTests packages unchanged by v2.1.0. SSISDB/msdb/Agent queries not yet run against a live server. |
 | `03_Test-AssessmentRouting.ps1` | Runs. Fixtures mode verified, including a deliberate failing case. |
 | `01_New-SsisTestProject.ps1` | Embedded C# compiles (C# 5) against API stubs. **Not yet run against real SSIS assemblies.** Some property names (e.g. on FTP/Send Mail tasks) are set defensively and logged as warnings if they differ. |
 | `02_Deploy-SsisTestProject.ps1` | Guardrail verified. **Not yet run against SSISDB.** Use `-WhatIf` first. |

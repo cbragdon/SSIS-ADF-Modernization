@@ -28,8 +28,13 @@
                                   (Windows auth, file shares, ODBC), or orchestration rework
            1  AdfNative-Low     - Copy activity / Script or Stored Procedure activity equivalents only
        Every rule that fired is listed (RouteReasons) - rules accumulate, they never overwrite each other.
+       Package properties are evaluated too: distributed transactions, checkpoints, package configurations
+       (package deployment model), error-row redirection in data flows, and connection strings whose
+       expression resolves to a local or UNC path. Connections used only by log providers are reported
+       but never raise the route. Tasks inside a disabled container are treated as disabled.
     5. Rolls child package routes up to parents (Execute Package Task), so a parent cannot look easier
-       than the children it runs (EffectiveRoute).
+       than the children it runs (EffectiveRoute). A child that cannot be resolved (external file/msdb
+       reference) makes the parent's EffectiveRoute ReviewRequired: an unknown child is never assumed easy.
     6. Enriches with run history from catalog.executions (run count, failures, last run, average duration)
        and optionally SQL Agent job steps (schedules, 32-bit /X86 execution - deprecated in SQL Server 2025).
     7. Writes timestamped CSVs plus a transcript log. Nothing is overwritten between runs.
@@ -135,7 +140,7 @@
     .\01_Invoke-SsisModernizationAssessment.ps1 -PackageFolder 'C:\Repos\ETL\SSIS' -TargetSsisVersion 2022
 
 .NOTES
-    Version : 2.0.0
+    Version : 2.1.0
     Purpose : Replaces 01_run_dma_assessment.ps1 (which queried non-existent catalog columns and could not
               determine task types). This script does not use Data Migration Assistant.
     Compat  : Windows PowerShell 5.1 and PowerShell 7.x. No SqlServer module dependency (uses .NET SqlClient).
@@ -329,10 +334,11 @@ $RuleTable = @(
     New-Rule Component 'OLEDBCommand'                  'OLE DB Command'              AdfNative-Medium '' Compatible 'Row-by-row SQL; redesign as set-based (staging + Stored Procedure activity).'
     New-Rule Component '\.SCD|SlowlyChanging'          'Slowly Changing Dimension'   AdfNative-Medium '' Compatible 'Rebuild with Data Flow Alter Row or set-based MERGE.'
     New-Rule Component 'Lookup|MergeJoin|\.Merge(\||$)|\.Sort|Aggregate|ConditionalSplit|DerivedColumn|Multicast|UnionAll|CharacterMap|CopyMap|Pivot|UnPivot|PctSampling|RowSampling|Lineage|\.Cache|XmlSource' 'Transformation (Data Flow mappable)' AdfNative-Medium '' Compatible 'ADF Mapping Data Flow equivalent, or push down to SQL.'
+    New-Rule Component 'RawSource|RawDestination'      'Raw File Source/Destination' AdfNative-Medium '' Compatible 'SSIS-proprietary Raw format; ADF cannot read or write it. Replace the staging hand-off with Parquet/Delta in storage or a staging table.'
     # ---------------- Data flow components: ADF Copy activity equivalents ----------------
     New-Rule Component 'ExcelSource'                   'Excel Source'                AdfNative-Medium '' NeedsCustomSetup 'ADF Excel connector (read-only); file must be reachable.'
     New-Rule Component 'DataConvert|RowCount'          'Data Conversion / Row Count' AdfNative-Low '' Compatible 'Copy activity type mapping / rows copied output.'
-    New-Rule Component 'OLEDBSource|OLEDBDestination|ADONETDestination|DataReaderSource|SSISODBC|FlatFile|RawSource|RawDestination|SQLServerDestination|Azure|FlexibleFile' 'Source/Destination adapter' AdfNative-Low '' Compatible 'ADF Copy activity source/sink.'
+    New-Rule Component 'OLEDBSource|OLEDBDestination|ADONETDestination|DataReaderSource|SSISODBC|FlatFile|SQLServerDestination|Azure|FlexibleFile' 'Source/Destination adapter' AdfNative-Low '' Compatible 'ADF Copy activity source/sink.'
 
     # ---------------- Connection managers ----------------
     New-Rule Connection '^MSORA|^ORACLE'               'Oracle (Microsoft Connector for Oracle)' AdfNative-Medium 'Removed2025' Review 'Microsoft Connector for Oracle removed in SQL Server 2025 SSIS; verify provider.'
@@ -350,6 +356,23 @@ $RuleTable = @(
     New-Rule Connection 'Azure|FlexibleFile|DataLake'  'Azure Feature Pack'          AdfNative-Low '' Compatible 'Native ADF connector exists.'
     New-Rule Connection '^CACHE'                       'Cache'                       AdfNative-Medium '' Compatible 'Lookup cache; Data Flow cached lookup.'
 )
+
+# Findings raised by package, task or data flow PROPERTIES rather than by a type identity. They are evidence
+# items like any other, so they route, accumulate and appear in evidence_items.csv.
+$PropertyRule = @{
+    Transaction   = New-Rule Task '' 'Distributed transaction (TransactionOption=Required)' AdfNative-Medium '' Review 'Uses MSDTC. ADF has no distributed transactions: redesign as idempotent steps or one set-based stored procedure. Azure-SSIS IR needs MSDTC on every participant.'
+    Checkpoint    = New-Rule Package '' 'Checkpoint restart' AdfNative-Medium '' NeedsConfiguration 'Checkpoint file restarts the package at the failed task. ADF rerun-from-failure works per activity with no checkpoint file, so restart logic must be re-proven; the checkpoint path must be writable on any SSIS runtime.'
+    ErrorRows     = New-Rule Component '' 'Error-row redirection' AdfNative-Medium '' Compatible 'Error/truncation rows are redirected to an error output. ADF Copy can only skip and log incompatible rows; routing them to a table needs a Mapping Data Flow or staging + validation SQL.'
+    ExprPath      = New-Rule Connection '' 'Local drive / UNC file path (set by expression)' AdfNative-Medium '' NeedsConfiguration 'The connection string expression resolves to a local or UNC path at run time (literal or variable/parameter default). Same reachability needs as a literal path: Self-hosted IR for ADF; VNet + file share access for Azure-SSIS IR.'
+    LoggingOnly   = New-Rule Connection '' 'Logging-only connection' AdfNative-Low '' Compatible 'Used only by a package log provider. Logging plumbing, not a data path, so it does not affect the route.'
+}
+# DTSConfigurationType (Microsoft.SqlServer.Dts.Runtime). I* = indirect: the location is held in an environment variable.
+$ConfigurationTypeName = @{
+    '0' = 'ParentVariable'; '1' = 'ConfigFile'; '2' = 'EnvVariable'; '3' = 'RegEntry'; '4' = 'IParentVariable'
+    '5' = 'IConfigFile'; '6' = 'IRegEntry'; '7' = 'SqlServer'; '8' = 'IniFile'; '9' = 'ISqlServer'; '10' = 'IIniFile'
+}
+# Literal file path on a drive letter or UNC share, alone or as an OLE DB/ODBC Data Source.
+$LocalOrUncPattern = '^\s*\\\\|^\s*[A-Za-z]:\\|Data Source\s*=\s*(\\\\|[A-Za-z]:\\)'
 
 function Get-RuleMatch {
     <# Returns the first rule in $RuleTable matching Scope + identity, or an explicit "Unrecognized" rule. #>
@@ -491,8 +514,9 @@ function Get-ConnectionFinding {
           WindowsAuth      - integrated security (ADF needs SHIR + Windows linked service; Azure-SSIS IR needs config)
           LocalOrUncPath   - file path on a drive letter or UNC share (reachability from any cloud runtime)
           ExpressionDriven - connection string set by an expression/parameter; static value may be misleading
+          ExpressionLocalOrUncPath - the expression resolves (literal or variable/parameter default) to a local/UNC path
     #>
-    param([Parameter(Mandatory)]$CmNode, [Parameter(Mandatory)]$Ns)
+    param([Parameter(Mandatory)]$CmNode, [Parameter(Mandatory)]$Ns, [hashtable]$ValueLookup = @{})
     $creation = Get-DtsAttr $CmNode 'CreationName'
     $inner    = $CmNode.SelectSingleNode('DTS:ObjectData/DTS:ConnectionManager', $Ns)
     $connStr  = Get-DtsAttr $inner 'ConnectionString'
@@ -503,8 +527,16 @@ function Get-ConnectionFinding {
 
     $flags = New-Object System.Collections.Generic.List[string]
     if ($connStr -match 'Integrated Security\s*=\s*(SSPI|True)|Trusted_Connection\s*=\s*(yes|true)') { $flags.Add('WindowsAuth') }
-    if ($connStr -match '^\s*\\\\|^\s*[A-Za-z]:\\|Data Source\s*=\s*(\\\\|[A-Za-z]:\\)')            { $flags.Add('LocalOrUncPath') }
-    if ($CmNode.SelectSingleNode("DTS:PropertyExpression[@DTS:Name='ConnectionString']", $Ns))         { $flags.Add('ExpressionDriven') }
+    if ($connStr -match $LocalOrUncPattern) { $flags.Add('LocalOrUncPath') }
+    $connExpr = $CmNode.SelectSingleNode("DTS:PropertyExpression[@DTS:Name='ConnectionString']", $Ns)
+    if ($connExpr) {
+        $flags.Add('ExpressionDriven')
+        # The static value is only the design-time default; check what the expression can evaluate to.
+        if (-not ($flags -contains 'LocalOrUncPath')) {
+            $candidates = Get-ExpressionCandidate -Expression $connExpr.InnerText -ValueLookup $ValueLookup
+            if (@($candidates | Where-Object { $_ -match $LocalOrUncPattern }).Count -gt 0) { $flags.Add('ExpressionLocalOrUncPath') }
+        }
+    }
 
     # Mask secrets: never write passwords from connection strings to disk.
     $safeConnStr = $connStr -replace '(?i)(password|pwd)\s*=\s*[^;]*', '$1=********'
@@ -514,6 +546,35 @@ function Get-ConnectionFinding {
         CreationName = $creation; Provider = $provider; Rule = $rule; Flags = $flags
         ConnectionString = $safeConnStr
     }
+}
+
+function Get-ExpressionCandidate {
+    <#
+        Returns the strings an SSIS expression can be built from: its string literals (SSIS escapes a backslash
+        as \\) and the default values of the variables/parameters it references, following variables that are
+        themselves expressions (EvaluateAsExpression) up to three levels. Values set only at run time (Foreach
+        mappings, Script Tasks, SSISDB environments) cannot be seen; their design-time default is the evidence.
+    #>
+    param([string]$Expression, [hashtable]$ValueLookup = @{}, [int]$Depth = 0)
+    $out = New-Object System.Collections.Generic.List[string]
+    if (-not $Expression -or $Depth -gt 2) { return , $out.ToArray() }
+    foreach ($m in [regex]::Matches($Expression, '"((?:[^"\\]|\\.)*)"')) { $out.Add(($m.Groups[1].Value -replace '\\\\', '\')) }
+    foreach ($m in [regex]::Matches($Expression, '@\[([^\]]+)\]')) {
+        $v = $ValueLookup[$m.Groups[1].Value]
+        if ($null -eq $v) { continue }
+        if ($v.Value) { $out.Add($v.Value) }
+        if ($v.Expression) { foreach ($c in (Get-ExpressionCandidate -Expression $v.Expression -ValueLookup $ValueLookup -Depth ($Depth + 1))) { $out.Add($c) } }
+    }
+    return , $out.ToArray()
+}
+
+function Test-DisabledInTree {
+    <# True when the executable or any container / event handler above it is disabled: SSIS never runs the children of a disabled container. #>
+    param([Parameter(Mandatory)]$Node, [Parameter(Mandatory)]$Root)
+    for ($n = $Node; $n -is [System.Xml.XmlElement] -and -not [object]::ReferenceEquals($n, $Root); $n = $n.ParentNode) {
+        if ((Get-DtsAttr $n 'Disabled') -eq 'True') { return $true }
+    }
+    return $false
 }
 
 function Get-PackageAnalysis {
@@ -533,6 +594,9 @@ function Get-PackageAnalysis {
         Children = New-Object System.Collections.Generic.List[string]
         TaskCount = 0; DisabledTaskCount = 0; DataFlowCount = 0; ComponentCount = 0
         ScriptTaskCount = 0; ScriptComponentCount = 0; ExpressionCount = 0; EventHandlerCount = 0
+        TransactionRequiredCount = 0; CheckpointsEnabled = $false; ErrorRowRedirectCount = 0
+        Configurations = New-Object System.Collections.Generic.List[string]
+        LogProviders = New-Object System.Collections.Generic.List[string]
     }
     $xml = New-Object System.Xml.XmlDocument
     $xml.XmlResolver = $null    # never resolve external entities
@@ -567,9 +631,61 @@ function Get-PackageAnalysis {
     $result.ExpressionCount   = $root.SelectNodes('//DTS:PropertyExpression', $ns).Count
     $result.EventHandlerCount = $root.SelectNodes('//DTS:EventHandler', $ns).Count
 
+    # ---- Variable and package parameter defaults, used to resolve connection string expressions ----
+    $valueLookup = @{}
+    foreach ($v in $root.SelectNodes('//DTS:Variable', $ns)) {
+        $vv   = $v.SelectSingleNode('DTS:VariableValue', $ns)
+        $expr = if ((Get-DtsAttr $v 'EvaluateAsExpression') -eq 'True') { Get-DtsAttr $v 'Expression' } else { '' }
+        $valueLookup[('{0}::{1}' -f (Get-DtsAttr $v 'Namespace'), (Get-DtsAttr $v 'ObjectName'))] = [PSCustomObject]@{ Value = $(if ($vv) { $vv.InnerText } else { '' }); Expression = $expr }
+    }
+    foreach ($pp in $root.SelectNodes('DTS:PackageParameters/DTS:PackageParameter', $ns)) {
+        $pv = $pp.SelectSingleNode("DTS:Property[@DTS:Name='ParameterValue']", $ns)
+        $valueLookup['$Package::' + (Get-DtsAttr $pp 'ObjectName')] = [PSCustomObject]@{ Value = $(if ($pv) { $pv.InnerText } else { '' }); Expression = '' }
+    }
+
+    # ---- Package properties: checkpoints and package configurations (package deployment model) ----
+    $cpUsage = Get-DtsAttr $root 'CheckpointUsage'
+    if ($cpUsage -in @('1', '2', 'IfExists', 'Always') -or (Get-DtsAttr $root 'SaveCheckpoints') -eq 'True') {
+        $result.CheckpointsEnabled = $true
+        $result.Items.Add([PSCustomObject]@{ Scope = 'Package'; Path = 'Package'; Identity = ('CheckpointUsage={0}' -f $cpUsage); Rule = $PropertyRule.Checkpoint; Disabled = $false })
+    }
+    foreach ($cfg in $root.SelectNodes('DTS:Configurations/DTS:Configuration', $ns)) {
+        $cType = Get-DtsAttr $cfg 'ConfigurationType'
+        $cName = if ($ConfigurationTypeName.ContainsKey($cType)) { $ConfigurationTypeName[$cType] } else { "Type$cType" }
+        $result.Configurations.Add($cName)
+        $result.Items.Add([PSCustomObject]@{ Scope = 'Configuration'; Path = ('Configuration[{0}]' -f (Get-DtsAttr $cfg 'ObjectName')); Identity = $cName; Disabled = $false
+            Rule = (New-Rule Configuration '' "Package configuration ($cName)" AdfNative-Medium '' NeedsConfiguration 'Package deployment model configuration: convert to project/package parameters and SSISDB environments before SSISDB, Azure-SSIS IR or an ADF rebuild (pipeline/global parameters, Key Vault). Environment-variable and registry configurations also tie the package to its host.') })
+    }
+    if ((Get-DtsAttr $root 'TransactionOption') -eq '2') {
+        $result.TransactionRequiredCount++
+        $result.Items.Add([PSCustomObject]@{ Scope = 'Package'; Path = 'Package'; Identity = 'TransactionOption=Required'; Rule = $PropertyRule.Transaction; Disabled = $false })
+    }
+
+    # ---- Log providers. A connection used ONLY by a log provider is logging plumbing, not a data path: it is
+    #      reported but must not raise the route (it would turn a plain copy into AdfNative-Medium). ----
+    $logRefs = New-Object System.Collections.Generic.HashSet[string]([StringComparer]::OrdinalIgnoreCase)
+    $logKind = @{ 'TextFile' = 'Text file'; 'XMLFile' = 'XML file'; 'EventLog' = 'Windows Event Log'; 'SQLProfiler' = 'SQL Server Profiler'; 'SQLServer' = 'SQL Server' }
+    foreach ($lp in $root.SelectNodes('DTS:LogProviders/DTS:LogProvider', $ns)) {
+        $lpType = Get-DtsAttr $lp 'CreationName'
+        $kind = 'Other'; foreach ($k in $logKind.Keys) { if ($lpType -match "LogProvider$k") { $kind = $logKind[$k] } }
+        $result.LogProviders.Add($kind)
+        $cfgStr = Get-DtsAttr $lp 'ConfigString'; if ($cfgStr) { [void]$logRefs.Add($cfgStr) }
+        $result.Items.Add([PSCustomObject]@{ Scope = 'LogProvider'; Path = ('LogProvider[{0}]' -f (Get-DtsAttr $lp 'ObjectName')); Identity = $lpType; Disabled = $false
+            Rule = (New-Rule LogProvider '' "Log provider ($kind)" AdfNative-Low '' Compatible 'Package logging; maps to SSISDB logging or ADF diagnostic settings / Azure Monitor, not to an ADF activity.') })
+    }
+    # Everything except the connection and log provider definitions: a connection referenced here is used by real work.
+    $refText = (@($root.ChildNodes | Where-Object { $_.LocalName -notin @('ConnectionManagers', 'LogProviders') } | ForEach-Object { $_.OuterXml }) -join '')
+    $isLoggingOnly = {
+        param($f)
+        if (-not ($logRefs.Contains([string]$f.Name) -or ($f.DtsId -and $logRefs.Contains([string]$f.DtsId)))) { return $false }
+        $byId   = $f.DtsId -and $refText.IndexOf($f.DtsId, [StringComparison]::OrdinalIgnoreCase) -ge 0
+        $byName = $refText.IndexOf("[$($f.Name)]", [StringComparison]::OrdinalIgnoreCase) -ge 0
+        return -not ($byId -or $byName)
+    }
+
     # ---- Package-level connection managers ----
     foreach ($cm in $root.SelectNodes('DTS:ConnectionManagers/DTS:ConnectionManager', $ns)) {
-        $f = Get-ConnectionFinding -CmNode $cm -Ns $ns
+        $f = Get-ConnectionFinding -CmNode $cm -Ns $ns -ValueLookup $valueLookup
         $f | Add-Member -NotePropertyName Level -NotePropertyValue 'Package'
         $result.ConnFindings.Add($f)
     }
@@ -580,6 +696,12 @@ function Get-PackageAnalysis {
         }
     }
     foreach ($f in $result.ConnFindings) {
+        if (& $isLoggingOnly $f) {
+            # Project connections are shared by every package in the project, so only package-level ones carry the flag.
+            if ($f.Level -eq 'Package') { $f.Flags.Add('LoggingOnly') }
+            $result.Items.Add([PSCustomObject]@{ Scope = 'Connection'; Path = "Connection[$($f.Name)] ($($f.Level))"; Identity = ('{0}|{1}' -f $f.CreationName, $f.Provider); Rule = $PropertyRule.LoggingOnly; Disabled = $false })
+            continue
+        }
         $result.Items.Add([PSCustomObject]@{ Scope = 'Connection'; Path = "Connection[$($f.Name)] ($($f.Level))"; Identity = ('{0}|{1}' -f $f.CreationName, $f.Provider); Rule = $f.Rule; Disabled = $false })
         # Independent connection flags become their own evidence items so they participate in routing.
         if ($f.Flags -contains 'WindowsAuth') {
@@ -590,6 +712,9 @@ function Get-PackageAnalysis {
             $result.Items.Add([PSCustomObject]@{ Scope = 'Connection'; Path = "Connection[$($f.Name)]"; Identity = 'LocalOrUncPath'; Disabled = $false
                 Rule = (New-Rule Connection '' 'Local drive / UNC file path' AdfNative-Medium '' NeedsConfiguration 'Path must be reachable from the runtime: Self-hosted IR for ADF; VNet + file share access for Azure-SSIS IR.') })
         }
+        if ($f.Flags -contains 'ExpressionLocalOrUncPath') {
+            $result.Items.Add([PSCustomObject]@{ Scope = 'Connection'; Path = "Connection[$($f.Name)]"; Identity = 'ExpressionLocalOrUncPath'; Rule = $PropertyRule.ExprPath; Disabled = $false })
+        }
     }
 
     # ---- Executables: every task and container, including those inside event handlers ----
@@ -597,12 +722,16 @@ function Get-PackageAnalysis {
         if ($exe -eq $root) { continue }                                      # the package itself
         $type     = Get-DtsAttr $exe 'ExecutableType'
         $path     = Get-DtsAttr $exe 'refId'; if (-not $path) { $path = Get-DtsAttr $exe 'ObjectName' }
-        $disabled = (Get-DtsAttr $exe 'Disabled') -eq 'True'
+        $disabled = Test-DisabledInTree -Node $exe -Root $root
         $rule     = Get-RuleMatch -Scope Task -Identity $type
         $result.TaskCount++
         if ($disabled) { $result.DisabledTaskCount++ }
         if ($rule.Name -eq 'Script Task') { $result.ScriptTaskCount++ }
         $result.Items.Add([PSCustomObject]@{ Scope = 'Task'; Path = $path; Identity = $type; Rule = $rule; Disabled = $disabled })
+        if ((Get-DtsAttr $exe 'TransactionOption') -eq '2') {
+            if (-not $disabled) { $result.TransactionRequiredCount++ }
+            $result.Items.Add([PSCustomObject]@{ Scope = 'Task'; Path = $path; Identity = 'TransactionOption=Required'; Rule = $PropertyRule.Transaction; Disabled = $disabled })
+        }
 
         # Foreach Loop enumerator
         $enum = $exe.SelectSingleNode('DTS:ForEachEnumerator', $ns)
@@ -637,6 +766,11 @@ function Get-PackageAnalysis {
                 $result.ComponentCount++
                 if ($cRule.Name -eq 'Script Component') { $result.ScriptComponentCount++ }
                 $result.Items.Add([PSCustomObject]@{ Scope = 'Component'; Path = ('{0}\{1}' -f $path, $comp.GetAttribute('name')); Identity = $identity; Rule = $cRule; Disabled = $disabled })
+                # Error outputs: any input/output/column set to redirect failing or truncated rows.
+                if ($comp.SelectNodes(".//*[@errorRowDisposition='RedirectRow' or @truncationRowDisposition='RedirectRow']").Count -gt 0) {
+                    if (-not $disabled) { $result.ErrorRowRedirectCount++ }
+                    $result.Items.Add([PSCustomObject]@{ Scope = 'Component'; Path = ('{0}\{1}' -f $path, $comp.GetAttribute('name')); Identity = 'ErrorRowRedirect'; Rule = $PropertyRule.ErrorRows; Disabled = $disabled })
+                }
             }
         }
     }
@@ -720,6 +854,9 @@ function Add-PackageResult {
         TaskCount = $a.TaskCount; DisabledTasks = $a.DisabledTaskCount; DataFlowTasks = $a.DataFlowCount
         DataFlowComponents = $a.ComponentCount; ScriptTasks = $a.ScriptTaskCount; ScriptComponents = $a.ScriptComponentCount
         PropertyExpressions = $a.ExpressionCount; EventHandlers = $a.EventHandlerCount
+        TransactionsRequired = $a.TransactionRequiredCount; CheckpointsEnabled = $a.CheckpointsEnabled
+        ErrorRowRedirects = $a.ErrorRowRedirectCount; PackageConfigurations = ($a.Configurations -join '; ')
+        LogProviders = ((@($a.LogProviders) | Sort-Object -Unique) -join '; ')
         ConnectionTypes = ((@($a.ConnFindings | ForEach-Object { $_.Rule.Name }) | Sort-Object -Unique) -join '; ')
         ChildPackages = ($a.Children -join '; '); RolledUpFrom = ''
         Executions = $null; FailedExecutions = $null; LastExecutionStart = $null; AvgDurationMin = $null; MaxDurationMin = $null
@@ -976,7 +1113,12 @@ try {
             param($pkg, $visited)
             $best = $pkg.PackageRoute; $from = New-Object System.Collections.Generic.List[string]
             foreach ($child in @($pkg.ChildPackages -split '; ' | Where-Object { $_ })) {
-                if ($child -like 'EXTERNAL:*') { $from.Add("$child (not resolved; review)"); continue }
+                if ($child -like 'EXTERNAL:*') {
+                    # File-system / msdb child: its contents are unknown here, so the parent cannot be called easy.
+                    $from.Add("$child (not resolved; review)")
+                    if ($RouteSeverity['ReviewRequired'] -gt $RouteSeverity[$best]) { $best = 'ReviewRequired' }
+                    continue
+                }
                 if (-not $lookup.ContainsKey($child) -or $visited.Contains($child)) { continue }
                 [void]$visited.Add($child)
                 $c = & $resolve $lookup[$child] $visited

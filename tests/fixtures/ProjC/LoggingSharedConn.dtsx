@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<!-- G09 control: the text log provider writes to a file connection that a File System Task ALSO uses.
+     That connection is a real data path, so the route must stay AdfNative-Medium. -->
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:refId="Package" DTS:ExecutableType="Microsoft.Package" DTS:ObjectName="LoggingSharedConn">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[Run log]" DTS:CreationName="FILE" DTS:DTSID="{C000000A-0000-0000-0000-000000000001}" DTS:ObjectName="Run log">
+      <DTS:ObjectData><DTS:ConnectionManager DTS:FileUsageType="0" DTS:ConnectionString="C:\SSIS\Logs\run.txt" /></DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+  <DTS:LogProviders>
+    <DTS:LogProvider DTS:ConfigString="{C000000A-0000-0000-0000-000000000001}" DTS:CreationName="Microsoft.LogProviderTextFile" DTS:DTSID="{C000000A-0000-0000-0000-0000000000A1}" DTS:ObjectName="SSIS log provider for Text files"><DTS:ObjectData><InnerObject /></DTS:ObjectData></DTS:LogProvider>
+  </DTS:LogProviders>
+  <DTS:Executables>
+    <DTS:Executable DTS:refId="Package\Archive log" DTS:ExecutableType="Microsoft.FileSystemTask" DTS:ObjectName="Archive log">
+      <DTS:ObjectData><FileSystemData TaskOperationType="CopyFile" TaskSourcePath="{C000000A-0000-0000-0000-000000000001}" TaskIsSourceVariable="False" /></DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>
