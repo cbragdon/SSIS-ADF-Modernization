@@ -30,7 +30,8 @@ Expect `67 passed, 0 failed`. If this fails, stop: the assessment script or the 
 powershell.exe -File .\scripts\test-packages\01_New-SsisTestProject.ps1 -TestDbServer <DevServer>
 ```
 
-Check `build\build_manifest.csv`:
+Check `build\build_manifest_AssessmentTests.csv` (one manifest per project; the routing test reads it to
+report packages the builder skipped as SKIP):
 
 * `Built = True` for T01–T13 and T16–T27. T14/T15 may be `False` when Fuzzy Lookup or the CDC/Oracle components
   are not installed — expected; the fixtures cover those rules.

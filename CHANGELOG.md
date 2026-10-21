@@ -4,6 +4,13 @@ All notable changes to this repository. Dates are local (America/New_York).
 
 ## [Unreleased] — 2026-10-20
 
+### Fixed (2026-10-21) — build manifest overwritten by the second suite
+- `01_New-SsisTestProject.ps1` v1.2.1 wrote every suite to `build\build_manifest.csv`, so building
+  ParityTests after AssessmentTests erased the record that T15 was skipped. The Server-mode routing test
+  then reported T15 as FAIL ("missing") instead of SKIP. Found while verifying #8 on the local SSISDB.
+  The builder now writes `build_manifest_<ProjectName>.csv` with a `ProjectName` column. The routing test
+  reads that file, falls back to the old shared file, and says when no manifest exists.
+
 ### Added (2026-10-21) — sprint backlog source server and creation time
 - `sprint_backlog.csv` and every workbook sheet gain `SourceServerName` (the name the source SQL Server
   reports, `@@SERVERNAME`, read at run time; `(file)` for packages read from disk) and `WorkbookCreatedAt`
