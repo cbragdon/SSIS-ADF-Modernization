@@ -11,6 +11,12 @@ All notable changes to this repository. Dates are local (America/New_York).
   The builder now writes `build_manifest_<ProjectName>.csv` with a `ProjectName` column. The routing test
   reads that file, falls back to the old shared file, and says when no manifest exists.
 
+### Added (2026-10-21) — sprint backlog source server and creation time
+- `sprint_backlog.csv` and every workbook sheet gain `SourceServerName` (the name the source SQL Server
+  reports, `@@SERVERNAME`, read at run time; `(file)` for packages read from disk) and `WorkbookCreatedAt`
+  (local time with UTC offset). Both are in the Legend. The output then holds a real server name: keep
+  generated backlogs out of source control.
+
 ### Changed (2026-10-21) — plain-language decision drivers
 - `DecisionDrivers` in the sprint backlog explained nothing on its own: `Excel Destination` did not say that
   ADF cannot write Excel. Every rule, every script dependency, and every parse-failure, roll-up and
