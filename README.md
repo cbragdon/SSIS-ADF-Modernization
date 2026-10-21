@@ -33,6 +33,7 @@ SSIS-ADF-Modernization/
 │  ├─ 02_test-package-catalog.md     what each test package covers and its expected route
 │  ├─ 03_runbook-test-packages.md    build -> deploy -> test -> remove, with troubleshooting
 │  ├─ 04_parity-harness.md           data-parity harness: SSIS output vs rewrite output, G22-G30
+│  ├─ 05_decision-driver-text.md     plain-language explanation shown for every routing finding
 │  └─ plan-review/
 │     ├─ README.md                   review of the AI-assisted migration plan
 │     ├─ SSIS_ADF_Plan_Review.xlsx   issues, recommended pipeline, next steps (tracking workbook)
@@ -125,8 +126,10 @@ Columns:
 * **Order:** `BuildOrder` is 1 for a package that runs no child package in its project. Otherwise it is
   1 + its deepest child. `DependsOn` lists the children it runs, and `CalledBy` lists the parents that run it.
   Building in ascending `BuildOrder` delivers every child before its parent.
-* **Why:** `DecisionDrivers` lists only the rules that set the package's own route, plus any harder child it
-  inherits from. The full list is in `package_assessment.csv` and `evidence_items.csv`.
+* **Why:** `DecisionDrivers` explains, in plain language, each finding that set the package's route, as
+  `finding: explanation` separated by ` | `. A harder child package is listed first because it decides the
+  platform. All the explanations are in [docs/05_decision-driver-text.md](docs/05_decision-driver-text.md).
+  Engineer-level detail is in `evidence_items.csv` (`Note`, plus the same plain text in `Explanation`).
 * **Context:** `AzureSsisIrFit`, `Removed2025`, `Usage` (for example, "not run in the last 90 days, confirm
   it is still needed"), `LastExecutionStart`, `AvgDurationMin`, `AgentJobs`.
 * **For the team to fill in:** `BusinessOwner`, `Developer`, `Sprint`, `Status`, `Decision`, `Notes`.
@@ -153,7 +156,7 @@ does not carry the planning columns forward.
 
 | Component | State |
 | --- | --- |
-| `01_Invoke-SsisModernizationAssessment.ps1` | v2.3.0. Runs. Offline fixtures pass (96/96 checks, including route-reason and sprint-backlog checks). Routes are unchanged by v2.3.0. SSISDB/msdb/Agent queries not yet run against a live server. The sprint workbook was validated with openpyxl, not yet opened in desktop Excel. |
+| `01_Invoke-SsisModernizationAssessment.ps1` | v2.3.0. Runs. Offline fixtures pass (134/134 checks, including route-reason, sprint-backlog and plain-language-driver checks). Routes are unchanged by v2.3.0. SSISDB/msdb/Agent queries not yet run against a live server. The sprint workbook was validated with openpyxl, not yet opened in desktop Excel. |
 | `03_Test-AssessmentRouting.ps1` | Runs. Fixtures mode verified, including a deliberate failing case. |
 | `01_New-SsisTestProject.ps1` | v1.1.0. T01–T15 built and deployed on SQL Server 2025 (14 of 15; T15 needs the removed CDC/Oracle components). **T16–T27 are syntax-checked only, not yet compiled or run on SSIS.** Property names are set defensively and logged as warnings if they differ. |
 | `02_Deploy-SsisTestProject.ps1` | Guardrail verified. **Not yet run against SSISDB.** Use `-WhatIf` first. |

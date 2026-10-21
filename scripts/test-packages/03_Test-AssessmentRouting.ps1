@@ -30,7 +30,8 @@
     * Sprint backlog: sprint_backlog.csv has one row per assessed package, every expected package lands on
       the platform its expected EffectiveRoute maps to, every parent's BuildOrder is higher than each
       child's, and sprint_backlog.xlsx is a readable workbook whose Backlog sheet has the same row count.
-      The secret scan reads the XML inside the workbook too.
+      The secret scan reads the XML inside the workbook too. Every DecisionDrivers entry is a full sentence
+      that explains the finding, never a bare component name.
 
     Exit code 0 when everything passes, 1 otherwise, so the script can gate a pull request.
 
@@ -192,6 +193,14 @@ foreach ($ver in $runs.Keys) {
     }
     $results.Add([PSCustomObject]@{ Target = $ver; Check = 'Backlog workbook'; Package = '-'; Expected = "$allCount rows"; Actual = "$xlsxRows rows"
         Status = $(if ($xlsxRows -eq $allCount) { 'PASS' } else { 'FAIL' }) })
+    # Decision drivers must explain, not just name: every ' | '-separated driver is a full sentence (at least
+    # 60 characters, ending in a full stop). A bare label such as 'Excel Destination' fails.
+    foreach ($b in $backlog) {
+        $bare = @($b.DecisionDrivers -split ' \| ' | Where-Object { $_.Length -lt 60 -or -not $_.TrimEnd().EndsWith('.') })
+        $ok = ($b.DecisionDrivers -and $bare.Count -eq 0)
+        $results.Add([PSCustomObject]@{ Target = $ver; Check = 'DriverExplained'; Package = "$($b.Project)\$($b.Package)"
+            Expected = 'sentences'; Actual = $(if ($ok) { 'sentences' } else { "bare: $($bare -join ' / ')" }); Status = $(if ($ok) { 'PASS' } else { 'FAIL' }) })
+    }
     # Build order: within a project, every parent comes after each child it executes.
     foreach ($grp in ($backlog | Group-Object ServerInstance, Folder, Project)) {
         $order = @{}; foreach ($b in $grp.Group) { $order[$b.Package] = [int]$b.BuildOrder }

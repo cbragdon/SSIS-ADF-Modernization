@@ -4,6 +4,17 @@ All notable changes to this repository. Dates are local (America/New_York).
 
 ## [Unreleased] — 2026-10-20
 
+### Changed (2026-10-21) — plain-language decision drivers
+- `DecisionDrivers` in the sprint backlog explained nothing on its own: `Excel Destination` did not say that
+  ADF cannot write Excel. Every rule, every script dependency, and every parse-failure, roll-up and
+  future-risk message now has a sentence a reader without SSIS or ADF background can follow. Each sentence
+  says what the package does and why that puts it on its platform. The full list, with each rule's
+  unchanged engineer note, is in `docs/05_decision-driver-text.md`.
+- `evidence_items.csv` gains an `Explanation` column. The workbook Legend defines ADF, SSIS VM, SHIR,
+  Copy activity, Mapping Data Flow and Azure-SSIS IR.
+- Guardrails: the assessment refuses to start if a rule has no explanation. The routing test fails if any
+  backlog driver is shorter than 60 characters or is not a full sentence (verified with a deliberately bare entry).
+
 ### Added (2026-10-21) — sprint backlog export (assessment v2.3.0)
 - Every assessment run writes `sprint_backlog.csv` and `sprint_backlog.xlsx`. Each package gets one row
   with `TargetPlatform` (ADF / SSIS VM / SSIS VM after remediation / Undetermined), `WorkType`,
@@ -17,7 +28,7 @@ All notable changes to this repository. Dates are local (America/New_York).
 - CI uploads the fixture run's sprint backlog as a sample artifact.
 
 ### Verified (2026-10-21) — sprint backlog
-- Fixtures: 96/96 checks pass on PowerShell 7.4. A deliberately wrong platform mapping fails 4 checks.
+- Fixtures: 96/96 checks pass on PowerShell 7.4 (134/134 with the plain-language checks). A deliberately wrong platform mapping fails 4 checks.
   openpyxl reads the workbook, all XML parts parse, and the frozen header and AutoFilter are present on every sheet.
   An empty run writes a valid workbook.
 - Not yet verified: opening in desktop Excel, and Windows PowerShell 5.1. The code avoids PS 7-only syntax.
