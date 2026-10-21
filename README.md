@@ -133,6 +133,10 @@ Columns:
 * **Context:** `AzureSsisIrFit`, `Removed2025`, `Usage` (for example, "not run in the last 90 days, confirm
   it is still needed"), `LastExecutionStart`, `AvgDurationMin`, `AgentJobs`.
 * **For the team to fill in:** `BusinessOwner`, `Developer`, `Sprint`, `Status`, `Decision`, `Notes`.
+* **Provenance:** `SourceServerName` is the name the source SQL Server reports (`@@SERVERNAME`), read at run
+  time next to `ServerInstance`, the name the run connected with. `WorkbookCreatedAt` (last column) is when the
+  file was written, in local time with the UTC offset. A generated backlog therefore holds real server names:
+  keep it out of source control.
 
 Workbook sheets: **Summary** (package counts per environment and platform, by complexity band),
 **Backlog** (all rows), one sheet per platform, and **Legend** (routes, bands, and column meanings).
