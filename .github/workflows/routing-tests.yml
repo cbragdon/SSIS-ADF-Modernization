@@ -50,7 +50,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sprint-backlog-sample-${{ matrix.os }}
-          path: ${{ runner.temp }}/assessment/SSISASSESS_*/sprint_backlog.*
+          path: |
+            ${{ runner.temp }}/assessment/SSISASSESS_*/sprint_backlog.csv
+            ${{ runner.temp }}/assessment/workbooks/**/*.xlsx
 
   # Data-parity harness self-test, one throwaway SQL Server container per version.
   # The last entry repeats 2025 with a case-sensitive UTF-8 server collation, because the scenario

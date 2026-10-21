@@ -38,7 +38,9 @@
     6. Enriches with run history from catalog.executions (run count, failures, last run, average duration)
        and optionally SQL Agent job steps (schedules, 32-bit /X86 execution - deprecated in SQL Server 2025).
     7. Writes timestamped CSVs plus a transcript log. Nothing is overwritten between runs.
-    8. Writes a sprint backlog (sprint_backlog.csv and sprint_backlog.xlsx) for developers and business units:
+    8. Writes a sprint backlog for developers and business units: sprint_backlog.csv (all servers) in the run
+       folder, plus one workbook per source server, <ServerName>_SSIS_Migration_Assessment_<yyyyMMdd_HHmmss>.xlsx,
+       in -WorkbookFolder:
        one row per package with its target platform, the work it implies, a complexity band, the order to
        build it in (children before parents) and blank Owner / Sprint / Status columns. The workbook needs
        neither Excel nor the ImportExcel module on the assessment host.
@@ -97,6 +99,12 @@
 .PARAMETER OutputRoot
     Root folder for output. A timestamped run folder is created beneath it. Default C:\Temp\SSIS_ADF_Assessment.
 
+.PARAMETER WorkbookFolder
+    Folder for the per-server workbooks (<ServerName>_SSIS_Migration_Assessment_<yyyyMMdd_HHmmss>.xlsx).
+    Created, and the creation logged, if it does not exist. Default: the run folder. <ServerName> is the name
+    the server reports (@@SERVERNAME) with '\' and other characters not allowed in file names replaced by '_';
+    packages read from -PackageFolder go into one FileSystem_... workbook.
+
 .PARAMETER IncludeMsdbPackages
     Also assess packages stored in msdb (package deployment model). These are additionally flagged as
     depending on the legacy Integration Services Service, which is deprecated in SQL Server 2025.
@@ -129,8 +137,15 @@
         route_summary.csv       - package counts per environment and route
         sprint_backlog.csv      - one planning row per package: TargetPlatform, WorkType, ComplexityBand, BuildOrder,
                                   DecisionDrivers, usage, and blank BusinessOwner / Developer / Sprint / Status columns
-        sprint_backlog.xlsx     - the same rows as a workbook: Summary, Backlog, one sheet per platform, Legend
-        transcript.log          - full PowerShell transcript of the run
+        transcript.log          - full PowerShell transcript of the run, including each server's start and completion time
+    <WorkbookFolder>\ (default: the run folder)
+        <ServerName>_SSIS_Migration_Assessment_<yyyyMMdd_HHmmss>.xlsx
+                                - one per source server: Summary, Backlog, one sheet per platform, Legend
+
+.EXAMPLE
+    # Two servers, one workbook each, written to a shared folder (created if missing)
+    .\01_Invoke-SsisModernizationAssessment.ps1 -ServerInstance <SsisProdServer>, <SsisDevServer> `
+        -WorkbookFolder 'D:\Assessment\Workbooks' -TrustServerCertificate
 
 .EXAMPLE
     # Single Production server, SQL Server 2025 target host, self-signed certificate on the VM
@@ -147,7 +162,7 @@
     .\01_Invoke-SsisModernizationAssessment.ps1 -PackageFolder 'C:\Repos\ETL\SSIS' -TargetSsisVersion 2022
 
 .NOTES
-    Version : 2.4.0
+    Version : 2.5.0
     Purpose : Replaces 01_run_dma_assessment.ps1 (which queried non-existent catalog columns and could not
               determine task types). This script does not use Data Migration Assistant.
     Compat  : Windows PowerShell 5.1 and PowerShell 7.x. No SqlServer module dependency (uses .NET SqlClient).
@@ -163,6 +178,7 @@ param(
     [ValidateSet('2016', '2017', '2019', '2022', '2025')]
     [string]$TargetSsisVersion = '2025',
     [string]$OutputRoot = 'C:\Temp\SSIS_ADF_Assessment',
+    [string]$WorkbookFolder,
     [switch]$IncludeMsdbPackages,
     [switch]$IncludeAgentJobs,
     [ValidateRange(1, 3650)]
@@ -185,9 +201,14 @@ if (-not $ServerInstance -and -not $ServerListPath -and -not $PackageFolder) {
 }
 
 # Every run gets a unique, sortable ID and its own output folder, so runs are comparable and never overwrite.
-$RunId     = 'SSISASSESS_{0}_{1}' -f (Get-Date -Format 'yyyyMMdd_HHmmss'), $env:COMPUTERNAME
+$RunStart  = Get-Date
+$RunStamp  = $RunStart.ToString('yyyyMMdd_HHmmss')
+$RunId     = 'SSISASSESS_{0}_{1}' -f $RunStamp, $env:COMPUTERNAME
 $RunFolder = Join-Path $OutputRoot $RunId
+# Folders that do not exist yet are created and logged (after the transcript starts, so the log records it).
+$CreatedFolders = @(foreach ($dir in @($OutputRoot, $WorkbookFolder | Where-Object { $_ })) { if (-not (Test-Path -LiteralPath $dir)) { $dir } })
 New-Item -ItemType Directory -Path $RunFolder -Force | Out-Null
+if ($WorkbookFolder) { New-Item -ItemType Directory -Path $WorkbookFolder -Force | Out-Null } else { $WorkbookFolder = $RunFolder }
 $LogFile   = Join-Path $RunFolder 'transcript.log'
 Start-Transcript -Path $LogFile -Force | Out-Null
 
@@ -253,7 +274,7 @@ $RouteLabel = @{
 # Azure-SSIS IR (Option B) fit precedence. Higher wins.
 $IrSeverity = @{ 'Compatible' = 1; 'NeedsConfiguration' = 2; 'NeedsCustomSetup' = 3; 'Review' = 4 }
 
-# Sprint backlog (sprint_backlog.csv / .xlsx): the platform each route lands on and the work it implies.
+# Sprint backlog (sprint_backlog.csv and the per-server workbooks): the platform each route lands on and the work it implies.
 # Order = sort order of the platform sheets in the workbook.
 $RoutePlanning = [ordered]@{
     'AdfNative-Low'    = @{ Platform = 'ADF'; Order = 1
@@ -1597,8 +1618,11 @@ function Write-XlsxWorkbook {
 }
 
 function Export-SprintBacklog {
-    <# Writes sprint_backlog.csv and sprint_backlog.xlsx (Summary, Backlog, one sheet per platform, Legend). #>
-    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Backlog, [Parameter(Mandatory)][string]$Folder)
+    <# Writes sprint_backlog.csv (every server) to -Folder and one workbook per source server to -WorkbookFolder:
+       <ServerName>_SSIS_Migration_Assessment_<Stamp>.xlsx with Summary, Backlog, one sheet per platform, Legend.
+       Returns the workbook paths. #>
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Backlog, [Parameter(Mandatory)][string]$Folder,
+          [Parameter(Mandatory)][string]$WorkbookFolder, [Parameter(Mandatory)][string]$Stamp)
     $columns = @('Environment', 'ServerInstance', 'SourceServerName', 'Folder', 'Project', 'Package', 'PackageLocation', 'isMigrating',
                  'TargetPlatform', 'Route', 'WorkType', 'ComplexityBand', 'ComplexityScore', 'BuildOrder', 'DependsOn', 'CalledBy', 'DecisionDrivers', 'AzureSsisIrFit',
                  'Removed2025', 'Usage', 'LastExecutionStart', 'AvgDurationMin', 'AgentJobs',
@@ -1610,13 +1634,6 @@ function Export-SprintBacklog {
 
     $platforms = @($RoutePlanning.Values | Sort-Object { $_.Order } | ForEach-Object { $_.Platform } | Select-Object -Unique)
     $bandNames = @($ComplexityBands.Keys) + @('XL', 'TBD')
-    $summary = foreach ($g in ($Backlog | Group-Object Environment, TargetPlatform)) {
-        $row = [ordered]@{ Environment = $g.Group[0].Environment; TargetPlatform = $g.Group[0].TargetPlatform; Packages = $g.Count }
-        foreach ($b in $bandNames) { $row[$b] = @($g.Group | Where-Object ComplexityBand -eq $b).Count }
-        $row['Order'] = [array]::IndexOf($platforms, $g.Group[0].TargetPlatform)
-        [PSCustomObject]$row
-    }
-    $summary = @($summary | Sort-Object Environment, Order)
 
     $legend = New-Object System.Collections.Generic.List[object]
     foreach ($k in $RoutePlanning.Keys) {
@@ -1661,21 +1678,43 @@ function Export-SprintBacklog {
     $legend.Add([PSCustomObject]@{ Item = 'WorkbookCreatedAt'; Value = ''; TargetPlatform = ''; WorkType = ''
         Meaning = 'Local date and time (with UTC offset) the CSV and workbook were written.' })
 
-    $sheets = New-Object System.Collections.Generic.List[object]
-    $sheets.Add(@{ Name = 'Summary'; Columns = @('Environment', 'TargetPlatform', 'Packages') + $bandNames; Rows = $summary })
-    $sheets.Add(@{ Name = 'Backlog'; Columns = $columns; Rows = @($Backlog) })
-    foreach ($pf in $platforms) {
-        $rows = @($Backlog | Where-Object TargetPlatform -eq $pf)
-        if ($rows.Count -gt 0) { $sheets.Add(@{ Name = $pf; Columns = $columns; Rows = $rows }) }
+    # One workbook per source server, named by the name the server reports (SourceServerName). Packages read
+    # from disk share one 'FileSystem' workbook. Characters not allowed in a file name become '_' (HOST\INST -> HOST_INST).
+    $invalid = '[{0}]' -f [regex]::Escape(-join [IO.Path]::GetInvalidFileNameChars())
+    $byServer = $Backlog | Group-Object { if ($_.ServerInstance -eq '(file)') { 'FileSystem' } else { $_.SourceServerName -replace $invalid, '_' } }
+    foreach ($srv in $byServer) {
+        $rowsAll = @($srv.Group)
+        $summary = foreach ($g in ($rowsAll | Group-Object Environment, TargetPlatform)) {
+            $row = [ordered]@{ Environment = $g.Group[0].Environment; TargetPlatform = $g.Group[0].TargetPlatform; Packages = $g.Count }
+            foreach ($b in $bandNames) { $row[$b] = @($g.Group | Where-Object ComplexityBand -eq $b).Count }
+            $row['Order'] = [array]::IndexOf($platforms, $g.Group[0].TargetPlatform)
+            [PSCustomObject]$row
+        }
+        $summary = @($summary | Sort-Object Environment, Order)
+
+        $sheets = New-Object System.Collections.Generic.List[object]
+        $sheets.Add(@{ Name = 'Summary'; Columns = @('Environment', 'TargetPlatform', 'Packages') + $bandNames; Rows = $summary })
+        $sheets.Add(@{ Name = 'Backlog'; Columns = $columns; Rows = $rowsAll })
+        foreach ($pf in $platforms) {
+            $rows = @($rowsAll | Where-Object TargetPlatform -eq $pf)
+            if ($rows.Count -gt 0) { $sheets.Add(@{ Name = $pf; Columns = $columns; Rows = $rows }) }
+        }
+        $sheets.Add(@{ Name = 'Legend'; Columns = @('Item', 'Value', 'TargetPlatform', 'Meaning', 'WorkType'); Rows = $legend.ToArray() })
+        $path = Join-Path $WorkbookFolder ('{0}_SSIS_Migration_Assessment_{1}.xlsx' -f $srv.Name, $Stamp)
+        Write-XlsxWorkbook -Path $path -Sheets $sheets.ToArray()
+        Write-Log -Level OK -Message ('Workbook for {0} ({1} packages): {2}' -f $srv.Name, $rowsAll.Count, $path)
+        $path
     }
-    $sheets.Add(@{ Name = 'Legend'; Columns = @('Item', 'Value', 'TargetPlatform', 'Meaning', 'WorkType'); Rows = $legend.ToArray() })
-    Write-XlsxWorkbook -Path (Join-Path $Folder 'sprint_backlog.xlsx') -Sheets $sheets.ToArray()
 }
 #endregion
 
 #region ============================== 8. EXECUTION ===============================================
 
 try {
+    Write-Log -Level STEP -Message ('Assessment started {0}' -f $RunStart.ToString('yyyy-MM-dd HH:mm:ss zzz'))
+    foreach ($dir in $CreatedFolders) { Write-Log -Level INFO -Message "Created folder (did not exist): $dir" }
+    Write-Log -Level INFO -Message "Workbook folder: $WorkbookFolder"
+
     # Build the server work list (explicit servers + server list file).
     $targets = New-Object System.Collections.Generic.List[object]
     foreach ($s in @($ServerInstance | Where-Object { $_ })) {
@@ -1694,8 +1733,20 @@ try {
         }
     }
 
-    foreach ($t in $targets) { Invoke-ServerAssessment -Server $t.ServerInstance -Env $t.Environment -Target $t.TargetSsisVersion }
-    foreach ($pf in @($PackageFolder | Where-Object { $_ })) { Invoke-FolderAssessment -Path $pf -Target $TargetSsisVersion }
+    # Each source is announced with its start and completion time, so a long multi-server run shows where it is.
+    $sources = @($targets | ForEach-Object { @{ Kind = 'Server'; Name = $_.ServerInstance; Target = $_ } }) +
+               @($PackageFolder | Where-Object { $_ } | ForEach-Object { @{ Kind = 'Folder'; Name = $_ } })
+    $n = 0
+    foreach ($src in $sources) {
+        $n++
+        $start = Get-Date; $pkgBefore = $Packages.Count; $errBefore = $Errors.Count
+        Write-Log -Level STEP -Message ('[{0}/{1}] {2} {3}: started {4}' -f $n, $sources.Count, $src.Kind, $src.Name, $start.ToString('yyyy-MM-dd HH:mm:ss'))
+        if ($src.Kind -eq 'Server') { Invoke-ServerAssessment -Server $src.Target.ServerInstance -Env $src.Target.Environment -Target $src.Target.TargetSsisVersion }
+        else { Invoke-FolderAssessment -Path $src.Name -Target $TargetSsisVersion }
+        $end = Get-Date
+        Write-Log -Level OK -Message ('[{0}/{1}] {2} {3}: completed {4} (elapsed {5:hh\:mm\:ss}, {6} packages, {7} errors)' -f $n, $sources.Count, $src.Kind, $src.Name,
+            $end.ToString('yyyy-MM-dd HH:mm:ss'), ($end - $start), ($Packages.Count - $pkgBefore), ($Errors.Count - $errBefore))
+    }
 
     # ---- Child package roll-up: a parent's EffectiveRoute is at least as hard as every child it executes ----
     Write-Log -Level STEP -Message 'Rolling child package routes up to parents'
@@ -1745,13 +1796,16 @@ try {
                            RouteLabel = $RouteLabel[$_.Group[0].EffectiveRoute]; Packages = $_.Count }
     } | Sort-Object Environment, @{ Expression = { $RouteSeverity[$_.EffectiveRoute] }; Descending = $true }
     $summary | Export-Csv -Path (Join-Path $RunFolder 'route_summary.csv') @csv
-    Export-SprintBacklog -Backlog @(New-SprintBacklog -Packages $Packages.ToArray()) -Folder $RunFolder
+    $workbooks = @(Export-SprintBacklog -Backlog @(New-SprintBacklog -Packages $Packages.ToArray()) -Folder $RunFolder -WorkbookFolder $WorkbookFolder -Stamp $RunStamp)
 
     Write-Log -Level OK -Message ("Packages assessed: {0} | Evidence items: {1} | Errors: {2}" -f $Packages.Count, $Evidence.Count, $Errors.Count)
     # -Width keeps the table readable in headless runs (SQL Agent, scheduled tasks) where console width is undefined.
     $summary | Format-Table Environment, EffectiveRoute, Packages -AutoSize | Out-String -Width 200 | Write-Host
     if ($Errors.Count -gt 0) { Write-Log -Level WARN -Message "Some objects failed; see errors.csv. Results for those objects are missing, not 'easy'." }
     Write-Log -Level OK -Message "Results: $RunFolder"
+    foreach ($wb in $workbooks) { Write-Log -Level OK -Message "Workbook: $wb" }
+    $runEnd = Get-Date
+    Write-Log -Level OK -Message ('Assessment completed {0} (elapsed {1:hh\:mm\:ss})' -f $runEnd.ToString('yyyy-MM-dd HH:mm:ss zzz'), ($runEnd - $RunStart))
 }
 catch {
     Write-Log -Level ERROR -Message "Fatal: $($_.Exception.Message)"

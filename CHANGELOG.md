@@ -4,6 +4,19 @@ All notable changes to this repository. Dates are local (America/New_York).
 
 ## [Unreleased] — 2026-10-20
 
+### Added (2026-10-21) — one workbook per server, workbook folder, progress log
+- The sprint backlog workbook is now written once per source server as
+  `<ServerName>_SSIS_Migration_Assessment_<yyyyMMdd_HHmmss>.xlsx` (the run-folder `sprint_backlog.xlsx` is
+  gone; `sprint_backlog.csv` still holds every server). `<ServerName>` is `@@SERVERNAME` made file-safe;
+  `-PackageFolder` packages go into one `FileSystem_...` workbook.
+- New `-WorkbookFolder` (default: the run folder). A folder that does not exist, this one or `-OutputRoot`,
+  is created and the creation logged.
+- Each server (and package folder) is logged with its start and completion time, elapsed time, package and
+  error counts, followed by the run's start, completion and workbook paths. Assessment v2.5.0.
+- Routing test v1.5.0 writes workbooks to a new folder each run and checks that the folder was created and
+  logged, that there is one correctly named workbook per server holding every CSV row, and that the
+  progress lines are in `transcript.log`. The CI sample artifact now carries the workbook.
+
 ### Added (2026-10-21) — PackageLocation and isMigrating columns
 - `sprint_backlog.csv` and the Backlog and platform sheets gain two columns right of `Package`.
   `PackageLocation` says where the package was found: `SSISDB`, `MSDB`, `File system` or `File system (.ispac)`.

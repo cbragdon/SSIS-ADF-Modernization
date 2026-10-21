@@ -101,7 +101,8 @@ easier than the children it runs. `AzureSsisIrFit` reports Option B suitability 
 
 ## Sprint backlog (planning workbook)
 
-Every assessment run also writes `sprint_backlog.csv` and `sprint_backlog.xlsx` to its run folder. They
+Every assessment run also writes `sprint_backlog.csv` (all servers) to its run folder and one workbook per
+source server, `<ServerName>_SSIS_Migration_Assessment_<yyyyMMdd_HHmmss>.xlsx`, to `-WorkbookFolder`. They
 list each package with the platform it is planned for and the work that implies, so developers can plan
 sprints and business units can see where each of their packages is going. The workbook is written
 directly as Office Open XML, so neither Excel nor the ImportExcel module is needed on the assessment host.
@@ -147,6 +148,19 @@ Columns:
 Workbook sheets: **Summary** (package counts per environment and platform, by complexity band),
 **Backlog** (all rows), one sheet per platform, and **Legend** (routes, bands, and column meanings).
 Each sheet has a frozen header and an AutoFilter.
+
+```powershell
+# One or more servers; one workbook each. The folder is created (and the creation logged) if it is missing.
+.\scripts\assessment\01_Invoke-SsisModernizationAssessment.ps1 -ServerInstance <SsisProdServer>, <SsisDevServer> `
+    -WorkbookFolder 'D:\Assessment\Workbooks' -TrustServerCertificate
+```
+
+* `<ServerName>` is the name the server reports (`@@SERVERNAME`); `\` and other characters a file name cannot
+  hold become `_` (`HOST\INST` → `HOST_INST`). Packages read with `-PackageFolder` go into one `FileSystem_...`
+  workbook. The timestamp is the run's start time, so all workbooks from one run share it.
+* `-WorkbookFolder` defaults to the run folder. `-ServerListPath` works the same way for long server lists.
+* The console and `transcript.log` announce each server with its start and completion time, elapsed time,
+  package count and error count, then the overall start, completion and every workbook path.
 
 Each run writes a new file, so copy the workbook somewhere shared before the team edits it. A re-run
 does not carry the planning columns forward.

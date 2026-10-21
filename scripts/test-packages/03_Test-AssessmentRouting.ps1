@@ -29,7 +29,9 @@
     * The assessment reported zero errors (errors.csv empty).
     * Sprint backlog: sprint_backlog.csv has one row per assessed package, every expected package lands on
       the platform its expected EffectiveRoute maps to, every parent's BuildOrder is higher than each
-      child's, and sprint_backlog.xlsx is a readable workbook whose Backlog sheet has the same row count.
+      child's, and each source server gets one readable <ServerName>_SSIS_Migration_Assessment_<yyyyMMdd_HHmmss>.xlsx
+      in a -WorkbookFolder the run had to create (and log); together their Backlog sheets hold every CSV row.
+      transcript.log announces each source's start and completion time.
       The secret scan reads the XML inside the workbook too. Every DecisionDrivers entry is a full sentence
       that explains the finding, never a bare component name, and no rule is missing its plain-language text
       (the assessment's RULE-EXPLANATION-MISSING warning in transcript.log).
@@ -55,7 +57,7 @@
     .\03_Test-AssessmentRouting.ps1 -Mode Server -ServerInstance <DevSqlServer> -TrustServerCertificate
 
 .NOTES
-    Version : 1.4.0
+    Version : 1.5.0
     Compat  : Windows PowerShell 5.1 and PowerShell 7.x.
 #>
 [CmdletBinding()]
@@ -119,12 +121,16 @@ function Invoke-AssessmentRun {
     $before = @(Get-ChildItem -LiteralPath $OutputRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object FullName)
     # 6>$null hides the child run's Write-Host console output; errors still surface.
     & $Assessment @Arguments -OutputRoot $OutputRoot 6>$null | Out-Null
-    $after = @(Get-ChildItem -LiteralPath $OutputRoot -Directory | Where-Object { $before -notcontains $_.FullName } | Sort-Object LastWriteTime)
+    $after = @(Get-ChildItem -LiteralPath $OutputRoot -Directory -Filter 'SSISASSESS_*' | Where-Object { $before -notcontains $_.FullName } | Sort-Object LastWriteTime)
     if ($after.Count -eq 0) { throw 'Assessment did not create a run folder.' }
     return $after[-1].FullName
 }
 
 $results = New-Object System.Collections.Generic.List[object]
+# Each run writes its workbooks to a folder that does not exist yet, so the test also proves the assessment
+# creates -WorkbookFolder and logs the creation.
+$wbFolders = @{}
+function New-WorkbookFolderPath { param([string]$Ver) Join-Path (Join-Path $OutputRoot 'workbooks') ('{0}_{1}_{2}' -f $Mode, $Ver, (Get-Date -Format 'yyyyMMdd_HHmmss')) }
 
 if ($Mode -eq 'Fixtures') {
     $expected = @(Import-Csv (Join-Path $RepoRoot 'tests\expected\fixtures_expected_routes.csv'))
@@ -134,7 +140,8 @@ if ($Mode -eq 'Fixtures') {
         Write-Result INFO "Running assessment on fixtures, target SQL Server $ver"
         # Run ids are per second; pause so consecutive runs never share a folder name.
         Start-Sleep -Seconds 1
-        $runs[$ver] = Invoke-AssessmentRun @{ PackageFolder = $fixtures; TargetSsisVersion = $ver; Environment = 'Fixtures' }
+        $wbFolders[$ver] = New-WorkbookFolderPath $ver
+        $runs[$ver] = Invoke-AssessmentRun @{ PackageFolder = $fixtures; TargetSsisVersion = $ver; Environment = 'Fixtures'; WorkbookFolder = $wbFolders[$ver] }
     }
     $manifest = @()
 }
@@ -143,7 +150,8 @@ else {
     $expected = @(Import-Csv (Join-Path $RepoRoot 'tests\expected\AssessmentTests_expected_routes.csv'))
     $runs = @{}
     foreach ($ver in ($expected | Select-Object -ExpandProperty TargetSsisVersion -Unique)) {
-        $a = @{ ServerInstance = $ServerInstance; TargetSsisVersion = $ver; Environment = 'Development' }
+        $wbFolders[$ver] = New-WorkbookFolderPath $ver
+        $a = @{ ServerInstance = $ServerInstance; TargetSsisVersion = $ver; Environment = 'Development'; WorkbookFolder = $wbFolders[$ver] }
         if ($TrustServerCertificate) { $a.TrustServerCertificate = $true }
         if ($SqlCredential) { $a.SqlCredential = $SqlCredential }
         Start-Sleep -Seconds 1
@@ -171,8 +179,8 @@ foreach ($ver in $runs.Keys) {
     $errs = @(Import-Csv (Join-Path $run 'errors.csv'))
     $results.Add([PSCustomObject]@{ Target = $ver; Check = 'Assessment errors'; Package = '-'; Expected = '0'; Actual = "$($errs.Count)"; Status = $(if ($errs.Count -eq 0) { 'PASS' } else { 'FAIL' }) })
 
-    # Secret masking: scan every output file
-    foreach ($f in Get-ChildItem -LiteralPath $run -File) {
+    # Secret masking: scan every output file, workbooks included
+    foreach ($f in @(Get-ChildItem -LiteralPath $run -File) + @(Get-ChildItem -LiteralPath $wbFolders[$ver] -File -ErrorAction SilentlyContinue)) {
         # .xlsx is compressed: scan the XML parts, not the zip bytes.
         $text = if ($f.Extension -eq '.xlsx') { (Read-XlsxParts -Path $f.FullName).Values -join "`n" } else { Get-Content -LiteralPath $f.FullName -Raw }
         foreach ($s in $PlantedSecrets) {
@@ -189,25 +197,43 @@ foreach ($ver in $runs.Keys) {
     if ($Mode -eq 'Server') { $backlog = @($backlog | Where-Object { $_.Folder -eq $FolderName -and $_.Project -eq $ProjectName }) }
     $results.Add([PSCustomObject]@{ Target = $ver; Check = 'Backlog rows'; Package = '-'; Expected = "$($actual.Count)"; Actual = "$($backlog.Count)"
         Status = $(if ((Test-Path -LiteralPath $backlogPath) -and $backlog.Count -eq $actual.Count) { 'PASS' } else { 'FAIL' }) })
-    $xlsxPath = Join-Path $run 'sprint_backlog.xlsx'
-    $xlsxRows = -1
+    # Workbooks: one per source server in -WorkbookFolder, named <ServerName>_SSIS_Migration_Assessment_<yyyyMMdd_HHmmss>.xlsx.
+    # The folder did not exist before the run, so the transcript must record its creation.
+    $wbDir = $wbFolders[$ver]
+    $transcriptText = Get-Content -LiteralPath (Join-Path $run 'transcript.log') -Raw
+    $logged = $transcriptText.Contains("Created folder (did not exist): $wbDir")
+    $results.Add([PSCustomObject]@{ Target = $ver; Check = 'Workbook folder created'; Package = '-'; Expected = 'created and logged'
+        Actual = $(if (-not (Test-Path -LiteralPath $wbDir)) { 'missing' } elseif (-not $logged) { 'created, not logged' } else { 'created and logged' })
+        Status = $(if ((Test-Path -LiteralPath $wbDir) -and $logged) { 'PASS' } else { 'FAIL' }) })
+    $workbooks = @(Get-ChildItem -LiteralPath $wbDir -File -Filter '*.xlsx' -ErrorAction SilentlyContinue)
+    $wantNames = if ($Mode -eq 'Server') { @(Import-Csv $backlogPath | ForEach-Object { $_.SourceServerName -replace '[\\/:*?"<>|]', '_' } | Sort-Object -Unique) } else { @('FileSystem') }
+    $gotNames = @($workbooks | ForEach-Object { if ($_.Name -match '^(.+)_SSIS_Migration_Assessment_\d{8}_\d{6}\.xlsx$') { $Matches[1] } else { "(bad name: $($_.Name))" } } | Sort-Object)
+    $results.Add([PSCustomObject]@{ Target = $ver; Check = 'Workbook per server'; Package = '-'
+        Expected = (@($wantNames | ForEach-Object { "${_}_SSIS_Migration_Assessment_<yyyyMMdd_HHmmss>.xlsx" }) -join '; ')
+        Actual = $(if ($workbooks.Count) { ($workbooks.Name -join '; ') } else { 'none' })
+        Status = $(if (($gotNames -join '|') -eq (($wantNames | Sort-Object) -join '|')) { 'PASS' } else { 'FAIL' }) })
+    $xlsxRows = 0
     $sheetHeaders = @{}
-    if (Test-Path -LiteralPath $xlsxPath) {
+    foreach ($wb in $workbooks) {
         try {
-            $xl = Read-XlsxParts -Path $xlsxPath
+            $xl = Read-XlsxParts -Path $wb.FullName
             [xml]$wbXml = $xl['xl/workbook.xml']
             $sheetNames = @($wbXml.workbook.sheets.sheet | ForEach-Object { $_.name })
             $idx = [array]::IndexOf($sheetNames, 'Backlog')
-            if ($idx -ge 0) { [xml]$sheetXml = $xl["xl/worksheets/sheet$($idx + 1).xml"]; $xlsxRows = @($sheetXml.worksheet.sheetData.row).Count - 1 }
+            if ($idx -ge 0) { [xml]$sheetXml = $xl["xl/worksheets/sheet$($idx + 1).xml"]; $xlsxRows += @($sheetXml.worksheet.sheetData.row).Count - 1 }
             for ($i = 0; $i -lt $sheetNames.Count; $i++) {
                 [xml]$sx = $xl["xl/worksheets/sheet$($i + 1).xml"]
                 $sheetHeaders[$sheetNames[$i]] = @(@($sx.worksheet.sheetData.row)[0].c | ForEach-Object { $_.InnerText })
             }
         }
-        catch { $xlsxRows = -1 }
+        catch { $xlsxRows = -1; break }
     }
     $results.Add([PSCustomObject]@{ Target = $ver; Check = 'Backlog workbook'; Package = '-'; Expected = "$allCount rows"; Actual = "$xlsxRows rows"
-        Status = $(if ($xlsxRows -eq $allCount) { 'PASS' } else { 'FAIL' }) })
+        Status = $(if ($workbooks.Count -gt 0 -and $xlsxRows -eq $allCount) { 'PASS' } else { 'FAIL' }) })
+    # Each source is announced with its start and completion time.
+    $progressOk = $transcriptText -match '\] (Server|Folder) .+: started \d{4}-\d{2}-\d{2} ' -and $transcriptText -match '\] (Server|Folder) .+: completed \d{4}-\d{2}-\d{2} .*elapsed' -and $transcriptText.Contains('Assessment completed ')
+    $results.Add([PSCustomObject]@{ Target = $ver; Check = 'Progress log'; Package = '-'; Expected = 'start and completion per source'
+        Actual = $(if ($progressOk) { 'start and completion per source' } else { 'missing in transcript.log' }); Status = $(if ($progressOk) { 'PASS' } else { 'FAIL' }) })
     # PackageLocation then isMigrating sit immediately right of Package, in the CSV and on every package sheet.
     $wantCols = 'Package,PackageLocation,isMigrating'
     $placement = @{ 'CSV' = @(if (Test-Path -LiteralPath $backlogPath) { (Get-Content -LiteralPath $backlogPath -TotalCount 1) -split ',' | ForEach-Object { $_.Trim('"') } }) }
