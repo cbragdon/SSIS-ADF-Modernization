@@ -1,5 +1,6 @@
 # Offline regression test for the SSIS assessment routing rules.
-# Runs on every push and pull request; needs no SQL Server (uses tests/fixtures).
+# Runs on every push and pull request. The routing job needs no SQL Server (uses tests/fixtures);
+# the parity job starts a disposable SQL Server container.
 name: Assessment routing tests
 
 on:
@@ -33,3 +34,35 @@ jobs:
         with:
           name: routing-test-report
           path: ${{ runner.temp }}/assessment/routing_test_*.csv
+
+  # Data-parity harness self-test against a throwaway SQL Server container.
+  parity-harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start SQL Server 2022 container (random sa password, masked)
+        shell: bash
+        run: |
+          pw="Ci$(openssl rand -hex 12)!a1"
+          echo "::add-mask::$pw"
+          echo "PARITY_SA_PASSWORD=$pw" >> "$GITHUB_ENV"
+          docker run -d --name paritysql -e ACCEPT_EULA=Y -e "MSSQL_SA_PASSWORD=$pw" -p 1433:1433 mcr.microsoft.com/mssql/server:2022-latest
+          for i in $(seq 1 60); do
+            if docker exec paritysql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$pw" -C -Q "SELECT 1" >/dev/null 2>&1; then echo "SQL Server ready"; exit 0; fi
+            sleep 2
+          done
+          docker logs paritysql; exit 1
+
+      - name: Run parity harness self-test
+        shell: pwsh
+        run: |
+          $cred = New-Object pscredential('sa', (ConvertTo-SecureString $env:PARITY_SA_PASSWORD -AsPlainText -Force))
+          ./scripts/parity/02_Test-ParityHarness.ps1 -ServerInstance localhost -SqlCredential $cred -TrustServerCertificate -WorkRoot "$env:RUNNER_TEMP/parity"
+
+      - name: Upload parity report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-selftest-report
+          path: ${{ runner.temp }}/parity/parity_results_*.csv

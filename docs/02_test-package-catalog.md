@@ -82,6 +82,12 @@ T16–T27 were added in builder v1.1.0 and have not yet been built on SSIS. Afte
 the package's `RouteReasons`, so these cases prove the route is right for the right reason. A token that
 starts with `!` must **not** appear (for example a commented-out `using` that must not be reported).
 
+## Data-parity scenarios (G22–G30)
+
+Priority 3 gaps route correctly but can return different data after a rebuild. They are not routing
+tests: they live in the parity harness, with cases in `tests/parity/parity_cases.csv`. See
+[04_parity-harness.md](04_parity-harness.md).
+
 ## Adding a test case
 
 1. Add the package (builder method or fixture file).

@@ -4,6 +4,29 @@ All notable changes to this repository. Dates are local (America/New_York).
 
 ## [Unreleased] — 2026-10-20
 
+### Added (2026-10-20) — data-parity harness v1.0.0 (Phase C, gaps G22–G30)
+- `sql/02_Create-ParityHarness.sql`: `parity` schema with the case catalogue, runs, results, file
+  manifests and run outcomes, and three compare procedures. Tables are compared as binary-exact
+  multisets of canonical row hashes (SHA2_256), with a collation-aware `EXCEPT` both ways, a schema diff
+  and JSON sample rows. Two empty outputs are an ERROR unless the case allows it.
+- `sql/03_Seed-ParityScenarios.sql`: inputs for G22–G30 (lookup case/space/NULL/duplicates, dedupe ties,
+  fast-load constraints/defaults/trigger, procedure with a temp table, file split input, empty driver),
+  identical `out_ssis` / `out_adf` output tables, and `pty.usp_ResetOutputs`.
+- `tests/parity/`: case catalogue `parity_cases.csv` and byte-exact input files for G23/G24.
+- `scripts/parity/01_Invoke-ParityTest.ps1`: loads the catalogue, optionally runs the SSIS package
+  (SSISDB, synchronized) and the ADF pipeline (REST), compares, writes a CSV report; exit code gates.
+- `scripts/parity/02_Test-ParityHarness.ps1` and `tests/parity/selftest/`: 18 known-answer cases.
+- CI: a `parity-harness` job runs the self-test against a SQL Server 2022 container.
+
+### Verified (2026-10-20) — parity harness
+- Self-test 18/18 on SQL Server 2022 (Linux container). It catches differences in case only, trailing
+  space only, duplicate count, NULL vs blank, a float's 16th digit, Unicode outside code page 1252, a
+  missing final newline, a BOM and an extra file. It passes physical row order, type-only changes and
+  ignored volatile columns.
+- A G22 demonstration (SSIS-style full-cache result vs a plain SQL join under a CI collation) is
+  reported as FAIL, 3 rows only in SSIS and 4 only in the candidate, with sample rows.
+- Not yet run: `-ExecuteSsis` and `-ExecuteAdf`. The G22–G30 packages and pipelines are still to be built.
+
 ### Changed (2026-10-20) — assessment v2.2.0 (G03, G04, G20 from the TechBrothersIT scenario review)
 - **Opaque SQL (G04)**: an Execute SQL Task whose statement comes from a variable or a file connection
   (`SqlStmtSourceType` Variable / FileConnection) raises the route to AdfNative-Medium, because the SQL

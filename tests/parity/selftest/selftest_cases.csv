@@ -1,0 +1,19 @@
+CaseId,GapId,Title,CompareType,SsisObject,CandidateObject,KeyColumns,CompareColumns,IgnoreColumns,ExpectedOutcome,AllowEmpty,SsisPath,CandidatePath,NameMask,ResetSql,SsisFolder,SsisProject,SsisPackage,AdfPipeline,AdfParameters,Notes,ExpectedStatus,ExpectedDetail
+ST01,SELFTEST,Identical rows in a different physical order,Table,ptest.ST01_S,ptest.ST01_C,Id,,,Match,,,,,,,,,,,,PASS,
+ST02,SELFTEST,Differ only in case,Table,ptest.ST02_S,ptest.ST02_C,Id,,,Match,,,,,,,,,,,,FAIL,"only in case, trailing spaces or duplicate counts"
+ST03,SELFTEST,Differ only in a trailing space,Table,ptest.ST03_S,ptest.ST03_C,Id,,,Match,,,,,,,,,,,,FAIL,"only in case, trailing spaces or duplicate counts"
+ST04,SELFTEST,"Same rows, one duplicated",Table,ptest.ST04_S,ptest.ST04_C,Id,,,Match,,,,,,,,,,,,FAIL,"only in case, trailing spaces or duplicate counts"
+ST05,SELFTEST,NULL vs blank,Table,ptest.ST05_S,ptest.ST05_C,Id,,,Match,,,,,,,,,,,,FAIL,
+ST06,SELFTEST,Float differs in the 16th digit,Table,ptest.ST06_S,ptest.ST06_C,Id,,,Match,,,,,,,,,,,,FAIL,
+ST07,SELFTEST,"Same values, different column types",Table,ptest.ST07_S,ptest.ST07_C,Id,,,Match,,,,,,,,,,,,PASS,Column types differ
+ST08,SELFTEST,Volatile column ignored,Table,ptest.ST08_S,ptest.ST08_C,Id,,LoadedAt,Match,,,,,,,,,,,,PASS,
+ST09,SELFTEST,Documented divergence,Table,ptest.ST09_S,ptest.ST09_C,Id,,,Differ,,,,,,,,,,,,KNOWN_DIFF,
+ST10,SELFTEST,Compared column missing from candidate,Table,ptest.ST10_S,ptest.ST10_C,Id,,,Match,,,,,,,,,,,,ERROR,Missing in candidate: Ratio
+ST11,SELFTEST,"Both sides empty, AllowEmpty set",Table,ptest.ST11_S,ptest.ST11_C,Id,,,Match,1,,,,,,,,,,,PASS,
+ST12,SELFTEST,Value change visible to EXCEPT too,Table,ptest.ST12_S,ptest.ST12_C,Id,,,Match,,,,,,,,,,,,FAIL,
+ST13,SELFTEST,Unicode outside code page 1252 into varchar,Table,ptest.ST13_S,ptest.ST13_C,Id,,,Match,,,,,,,,,,,,FAIL,
+ST14,SELFTEST,Both sides empty without AllowEmpty,Table,ptest.ST11_S,ptest.ST11_C,Id,,,Match,,,,,,,,,,,,ERROR,Both sides are empty
+ST20,SELFTEST,Identical file sets with masked time stamps,Files,,,,,,Match,,<LandingPath>/files_ok/ssis,<LandingPath>/files_ok/adf,_\d{8}_\d{6}=_<ts>,,,,,,,,PASS,
+ST21,SELFTEST,"Missing final newline, BOM and an extra file",Files,,,,,,Match,,<LandingPath>/files_diff/ssis,<LandingPath>/files_diff/adf,_\d{8}_\d{6}=_<ts>,,,,,,,,FAIL,final newline|encoding NoBOM vs UTF8-BOM|Candidate only: east_part3_<ts>.csv
+ST30,SELFTEST,Both sides fail,Outcome,,,,,,Match,,,,,,,,,,,,PASS,
+ST31,SELFTEST,"SSIS fails, candidate succeeds",Outcome,,,,,,Match,,,,,,,,,,,,FAIL,SSIS Failed / candidate Succeeded

@@ -1,0 +1,6 @@
+Id,Code,Quantity,ShipDate,Note
+1,A1,5,2026-01-10,ok
+2,,7,2026-01-11,blank code
+3,"",,2026-01-12,quoted empty code and blank quantity
+4, ,3,,space-only code and blank date
+5,A5,0,2026-01-14,

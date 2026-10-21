@@ -1,0 +1,5 @@
+Id,NameAnsi,NameUnicode,Amount,Ratio
+1,Café,Café,12.345,0.1
+2,Price €5,Price €5,7.005,0.3333333333333333
+3,Longer than ten,Longer than ten,1.5,1E-7
+4,Señor,Señor,-0.005,2.5
