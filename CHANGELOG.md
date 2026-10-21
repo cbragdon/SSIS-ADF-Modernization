@@ -4,6 +4,15 @@ All notable changes to this repository. Dates are local (America/New_York).
 
 ## [Unreleased] — 2026-10-20
 
+### Added (2026-10-21) — PackageLocation and isMigrating columns
+- `sprint_backlog.csv` and the Backlog and platform sheets gain two columns right of `Package`.
+  `PackageLocation` says where the package was found: `SSISDB`, `MSDB`, `File system` or `File system (.ispac)`.
+  `isMigrating` is `Yes` by default, or `Review` for an SSISDB package with no run in the `-HistoryDays`
+  window. The team confirms it and sets `No` for packages being retired. Both columns, with every value, are
+  in the Legend. Assessment v2.4.0.
+- Routing test v1.4.0 checks that both columns sit right of `Package` in the CSV and on every package
+  sheet, and that every row has a valid location and `isMigrating` value.
+
 ### Fixed (2026-10-21) — build manifest overwritten by the second suite
 - `01_New-SsisTestProject.ps1` v1.2.1 wrote every suite to `build\build_manifest.csv`, so building
   ParityTests after AssessmentTests erased the record that T15 was skipped. The Server-mode routing test
