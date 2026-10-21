@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<!-- G20: fixed-width and ragged-right flat files. Relative paths, so only the format raises the reason. -->
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:refId="Package" DTS:ExecutableType="Microsoft.Package" DTS:ObjectName="FixedWidth">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[Mainframe extract]" DTS:CreationName="FLATFILE" DTS:DTSID="{C0000011-0000-0000-0000-000000000001}" DTS:ObjectName="Mainframe extract">
+      <DTS:ObjectData><DTS:ConnectionManager DTS:Format="FixedWidth" DTS:CodePage="37" DTS:ConnectionString="inbound\gl_extract.dat" /></DTS:ObjectData>
+    </DTS:ConnectionManager>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[Ragged feed]" DTS:CreationName="FLATFILE" DTS:DTSID="{C0000011-0000-0000-0000-000000000002}" DTS:ObjectName="Ragged feed">
+      <DTS:ObjectData><DTS:ConnectionManager DTS:Format="RaggedRight" DTS:CodePage="65001" DTS:ConnectionString="inbound\ragged.txt" /></DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+  <DTS:Executables>
+    <DTS:Executable DTS:refId="Package\Load extract" DTS:ExecutableType="Microsoft.Pipeline" DTS:ObjectName="Load extract">
+      <DTS:ObjectData><pipeline version="1"><components>
+        <component refId="a" componentClassID="Microsoft.FlatFileSource" name="Fixed src" />
+        <component refId="b" componentClassID="Microsoft.FlatFileSource" name="Ragged src" />
+        <component refId="c" componentClassID="Microsoft.OLEDBDestination" name="Dest" />
+      </components></pipeline></DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

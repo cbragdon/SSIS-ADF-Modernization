@@ -17,7 +17,7 @@
 
     WHAT IT BUILDS
     --------------
-    One project, 15 packages. Each package exercises specific routing rules in
+    One project, 27 packages. Each package exercises specific routing rules in
     01_Invoke-SsisModernizationAssessment.ps1, and each has an expected route recorded in
     tests\expected\AssessmentTests_expected_routes.csv so the assessment can be regression-tested.
     See docs\02_test-package-catalog.md for the full coverage matrix.
@@ -37,6 +37,18 @@
         T13_FtpAndSendMail         FTP Task, Send Mail Task                             -> AdfNative-Medium
         T14_FuzzyLookup            Fuzzy Lookup (built only if installed)               -> KeepOnSsisVm
         T15_RemovedIn2025          CDC / Oracle components (built only if installed)    -> Remediate2025
+        T16_OpaqueSql              Execute SQL from a variable / file connection (G04)  -> AdfNative-Medium
+        T17_ResultSets             Single-row + full result set, Foreach ADO (G10)      -> AdfNative-Medium
+        T18_ExcelSheetLoop         Schema Rowset loop over sheets, Excel Source (G11/19)-> AdfNative-Medium
+        T19_ExecuteProcess         Execute Process Task (G12)                           -> KeepOnSsisVm
+        T20_BulkInsert             Bulk Insert Task from a UNC file (G13)               -> AdfNative-Medium
+        T21_MergeJoin              Sort, Merge Join, Merge (G14)                        -> AdfNative-Medium
+        T22_CacheTransform         Cache Transform + cache-mode Lookup (G15)            -> AdfNative-Medium
+        T23_MoreTransforms         Pivot/Unpivot/Character Map/Sampling/Audit (G16)     -> AdfNative-Medium
+        T24_ImportExportColumn     Import Column, Export Column (G17)                   -> KeepOnSsisVm
+        T25_RecordsetDestination   Recordset Destination + Foreach ADO (G18)            -> KeepOnSsisVm
+        T26_FlatFileFormats        Fixed width, ragged right, pipe UTF-8, multi (G20)   -> AdfNative-Medium
+        T27_DynamicMail            Send Mail in OnError, expressions, attachment (G21)  -> AdfNative-Medium
 
     Components that are not installed on the build machine (for example the Attunity CDC and Oracle
     components, which SQL Server 2025 removed) are skipped and listed in build_manifest.csv. Those
@@ -111,11 +123,12 @@
     powershell.exe -File .\01_New-SsisTestProject.ps1 -TestDbServer <DevSqlServer> -ResolveMetadata
 
 .NOTES
-    Version : 1.0.0
+    Version : 1.1.0
     Part of : SSIS-ADF-Modernization repository (scripts\test-packages)
-    Status  : Executed against SQL Server 2025 (SSIS 17.0): 14 of 15 packages build (T15 skipped, CDC/Oracle
-              components removed in 2025). Earlier SSIS versions not yet run; review build_manifest.csv
-              and the build log after the first run on them.
+    Status  : T01-T15 executed against SQL Server 2025 (SSIS 17.0): 14 of 15 packages build (T15 skipped,
+              CDC/Oracle components removed in 2025). T16-T27 (v1.1.0) are not yet compiled or run on SSIS:
+              check build_manifest.csv (Warnings, SkippedItems) after the first build. Earlier SSIS versions
+              not yet run.
 #>
 [CmdletBinding()]
 param(
@@ -200,6 +213,7 @@ using System.Collections.Generic;
 using System.IO;
 using Microsoft.SqlServer.Dts.Runtime;
 using Microsoft.SqlServer.Dts.Pipeline.Wrapper;
+using RtWrapper = Microsoft.SqlServer.Dts.Runtime.Wrapper;
 
 namespace SsisTestKit
 {
@@ -396,11 +410,17 @@ namespace SsisTestKit
         /// <summary>Connects output 0 of 'from' to input 0 of 'to'. Missing metadata is tolerated.</summary>
         private void Path(MainPipe mp, IDTSComponentMetaData100 from, IDTSComponentMetaData100 to)
         {
+            PathTo(mp, from, 0, to, 0);
+        }
+
+        /// <summary>Connects a specific output to a specific input (Merge Join / Merge have two inputs).</summary>
+        private void PathTo(MainPipe mp, IDTSComponentMetaData100 from, int outputIndex, IDTSComponentMetaData100 to, int inputIndex)
+        {
             if (mp == null || from == null || to == null) return;
             try
             {
                 IDTSPath100 p = mp.PathCollection.New();
-                p.AttachPathAndPropagateNotifications(from.OutputCollection[0], to.InputCollection[0]);
+                p.AttachPathAndPropagateNotifications(from.OutputCollection[outputIndex], to.InputCollection[inputIndex]);
             }
             catch (Exception ex) { Warn("Path " + from.Name + " -> " + to.Name + " not attached: " + ex.Message); }
         }
@@ -493,7 +513,8 @@ namespace SsisTestKit
             catch (Exception ex) { Warn("Password expression not set on TestDb_Sql: " + ex.Message); }
 
             T01(); T02(); T03(); T04(); T05(); T06(); T07(); T08(); T09(); T10();
-            T11(); T12(); T13(); T14(); T15();
+            T11(); T12(); T13(); T14(); T15(); T16(); T17(); T18(); T19(); T20();
+            T21(); T22(); T23(); T24(); T25(); T26(); T27();
 
             project.Save();
             project.Dispose();
@@ -861,6 +882,395 @@ namespace SsisTestKit
             MainPipe mp = AddDataFlow(p, "Removed components");
             foreach (string r in present) AddComponent(mp, r, r);
             FinishPackage(p);
+        }
+
+        // ------------------------------------------------------------------ packages: P2 gaps (G04, G10-G21)
+        private void T16()
+        {
+            Package p = NewPackage("T16_OpaqueSql", "AdfNative-Medium", "AdfNative-Medium", false,
+                "G04: Execute SQL Tasks whose statement comes from a variable and from a .sql file connection. The SQL that runs is not in the package, so the scanner raises it to Medium.");
+            p.Variables.Add("MergeSql", false, "User", "EXEC etl.usp_Merge_Customer;");
+            TaskHost fromVar = AddExecuteSql(p, "Run statement from variable", cmSql, "User::MergeSql");
+            SetTaskEnum(fromVar, "SqlStatementSourceType", "Variable");
+            ConnectionManager sqlFile = p.Connections.Add("FILE");
+            sqlFile.Name = "Cleanup script";
+            sqlFile.ConnectionString = "scripts\\cleanup.sql";   // relative path: only the source type should route
+            TaskHost fromFile = AddExecuteSql(p, "Run script file", cmSql, sqlFile.Name);   // FileConnection: the source is the connection name
+            SetTaskEnum(fromFile, "SqlStatementSourceType", "FileConnection");
+            Link(p, fromVar, fromFile, DTSExecResult.Success, null);
+            FinishPackage(p);
+        }
+
+        private void T17()
+        {
+            Package p = NewPackage("T17_ResultSets", "AdfNative-Medium", "AdfNative-Medium", false,
+                "G10: Execute SQL single-row and full result sets. The full result set (Object variable) feeds a Foreach ADO Enumerator, which maps to ADF Lookup + ForEach (5,000-row Lookup limit).");
+            p.Variables.Add("CustomerCount", false, "User", 0);
+            p.Variables.Add("CustomerList", false, "User", new object());
+            p.Variables.Add("CustomerId", false, "User", 0);
+            TaskHost single = AddExecuteSql(p, "Count customers", cmSql, "SELECT COUNT(*) AS CustomerCount FROM src.Customer;");
+            SetTaskEnum(single, "ResultSetType", "ResultSetType_SingleRow");
+            AddResultBinding(single, "CustomerCount", "User::CustomerCount");
+            TaskHost full = AddExecuteSql(p, "Get customer list", cmSql, "SELECT CustomerId FROM src.Customer;");
+            SetTaskEnum(full, "ResultSetType", "ResultSetType_Rowset");
+            AddResultBinding(full, "0", "User::CustomerList");
+            ForEachLoop fe = (ForEachLoop)p.Executables.Add("STOCK:FOREACHLOOP");
+            fe.Name = "Each customer";
+            Dictionary<string, object> props = new Dictionary<string, object>();
+            props["DataObjectVariable"] = "User::CustomerList";
+            if (SetEnumerator(fe, "Foreach ADO Enumerator", props)) MapLoopVariable(fe, "User::CustomerId", 0);
+            AddExecuteSql(fe, "Process customer", cmSql, "EXEC etl.usp_Process_Customer ?;");
+            Link(p, single, full, DTSExecResult.Success, null);
+            Link(p, full, fe, DTSExecResult.Success, null);
+            FinishPackage(p);
+        }
+
+        private void T18()
+        {
+            Package p = NewPackage("T18_ExcelSheetLoop", "AdfNative-Medium", "AdfNative-Medium", false,
+                "G11 + G19: Foreach ADO.NET Schema Rowset Enumerator over the sheets of a workbook, Excel Source per sheet, and an Execute SQL Task on the Excel connection (ACE provider).");
+            p.Variables.Add("SheetName", false, "User", "Sheet1$");
+            string wb = s.LandingPath + "\\in\\regions.xlsx";
+            ConnectionManager xl = p.Connections.Add("EXCEL");
+            xl.Name = "Region workbook";
+            xl.ConnectionString = "Provider=Microsoft.ACE.OLEDB.16.0;Data Source=" + wb + ";Extended Properties=\"Excel 12.0 XML;HDR=YES\";";
+            ConnectionManager adoXl = null;
+            try
+            {
+                adoXl = p.Connections.Add("ADO.NET:System.Data.OleDb.OleDbConnection, System.Data, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089");
+                adoXl.Name = "Region workbook schema";
+                adoXl.ConnectionString = "Provider=Microsoft.ACE.OLEDB.16.0;Data Source=" + wb + ";Extended Properties=\"Excel 12.0 XML;HDR=YES\";";
+            }
+            catch (Exception ex) { Warn("ADO.NET OleDb connection not created: " + ex.Message); }
+
+            TaskHost prep = AddExecuteSql(p, "Create summary sheet", xl, "CREATE TABLE `Summary` (`Region` LongText, `Total` Double);");
+            ForEachLoop fe = (ForEachLoop)p.Executables.Add("STOCK:FOREACHLOOP");
+            fe.Name = "Each worksheet";
+            Dictionary<string, object> props = new Dictionary<string, object>();
+            if (adoXl != null) props["Connection"] = adoXl.ID;
+            if (SetEnumerator(fe, "Foreach ADO.NET Schema Rowset Enumerator", props)) MapLoopVariable(fe, "User::SheetName", 2);   // 2 = TABLE_NAME
+            MainPipe mp = AddDataFlow(fe, "Load worksheet");
+            IDTSComponentMetaData100 src = AddComponent(mp, "Excel Source", "Read worksheet");
+            UseConnection(src, xl);
+            SetCompProp(src, "AccessMode", 1);   // 1 = table name from variable
+            SetCompProp(src, "OpenRowsetVariable", "User::SheetName");
+            IDTSComponentMetaData100 dst = AddComponent(mp, "OLE DB Destination", "Write stg.RegionSheet");
+            UseConnection(dst, cmSql);
+            SetCompProp(dst, "AccessMode", 3);
+            SetCompProp(dst, "OpenRowset", "[stg].[RegionSheet]");
+            Path(mp, src, dst);
+            Link(p, prep, fe, DTSExecResult.Success, null);
+            FinishPackage(p);
+        }
+
+        private void T19()
+        {
+            Package p = NewPackage("T19_ExecuteProcess", "KeepOnSsisVm", "KeepOnSsisVm", false,
+                "G12: Execute Process Task runs an executable on the host (zip/unzip). The executable must exist on every runtime: KeepOnSsisVm.");
+            TaskHost ep = AddTask(p, "Execute Process Task", "STOCK:ExecuteProcessTask", "Unzip landing archive");
+            if (ep != null)
+            {
+                SetProp(ep, "Executable", "C:\\Program Files\\7-Zip\\7z.exe");
+                SetProp(ep, "Arguments", "x archive.zip -y");
+                SetProp(ep, "WorkingDirectory", s.LandingPath);
+                ep.SetExpression("Arguments", "\"x \" + @[$Project::LandingPath] + \"\\\\archive.zip -y\"");
+            }
+            FinishPackage(p);
+        }
+
+        private void T20()
+        {
+            Package p = NewPackage("T20_BulkInsert", "AdfNative-Medium", "AdfNative-Medium", false,
+                "G13: Bulk Insert Task from a UNC flat file into a table. Maps to ADF Copy, but the file must be reachable from the SQL Server (BULK INSERT reads it server-side).");
+            ConnectionManager ff = p.Connections.Add("FILE");
+            ff.Name = "Bulk source file";
+            ff.ConnectionString = s.LandingPath + "\\bulk\\customers.dat";
+            TaskHost bi = AddTask(p, "Bulk Insert Task", "STOCK:BulkInsertTask", "Bulk load stg.Customer");
+            if (bi != null)
+            {
+                SetProp(bi, "SourceConnection", ff.Name);
+                SetProp(bi, "DestinationConnection", cmSql.Name);
+                SetProp(bi, "DestinationTableName", "[stg].[Customer]");
+                SetProp(bi, "FieldTerminator", "|");
+                SetProp(bi, "RowTerminator", "{CR}{LF}");
+                SetProp(bi, "BatchSize", 10000);
+            }
+            FinishPackage(p);
+        }
+
+        private void T21()
+        {
+            Package p = NewPackage("T21_MergeJoin", "AdfNative-Medium", "AdfNative-Medium", false,
+                "G14: Sort -> Merge Join (inner) on two sorted inputs, then Merge with a third input. Mapping Data Flow Join/Union, or push the join down to SQL.");
+            MainPipe mp = AddDataFlow(p, "Join customers to orders");
+            IDTSComponentMetaData100 c = AddComponent(mp, "OLE DB Source", "Read customers");
+            UseConnection(c, cmSql); SetCompProp(c, "AccessMode", 2);
+            SetCompProp(c, "SqlCommand", "SELECT CustomerId, CustomerName FROM src.Customer;");
+            IDTSComponentMetaData100 o = AddComponent(mp, "OLE DB Source", "Read orders");
+            UseConnection(o, cmSql); SetCompProp(o, "AccessMode", 2);
+            SetCompProp(o, "SqlCommand", "SELECT CustomerId, Amount FROM src.Customer;");
+            IDTSComponentMetaData100 sc = AddComponent(mp, "Sort", "Sort customers");
+            IDTSComponentMetaData100 so = AddComponent(mp, "Sort", "Sort orders");
+            IDTSComponentMetaData100 mj = AddComponent(mp, "Merge Join", "Join on CustomerId");
+            SetCompProp(mj, "JoinType", 1);   // 1 = inner join
+            IDTSComponentMetaData100 late = AddComponent(mp, "OLE DB Source", "Read late orders");
+            UseConnection(late, cmSql); SetCompProp(late, "AccessMode", 2);
+            SetCompProp(late, "SqlCommand", "SELECT CustomerId, Amount FROM src.Customer WHERE 1 = 0;");
+            IDTSComponentMetaData100 sl = AddComponent(mp, "Sort", "Sort late orders");
+            IDTSComponentMetaData100 mg = AddComponent(mp, "Merge", "Merge late orders");
+            IDTSComponentMetaData100 dst = AddComponent(mp, "OLE DB Destination", "Write dst.CustomerOrders");
+            UseConnection(dst, cmSql); SetCompProp(dst, "AccessMode", 3);
+            SetCompProp(dst, "OpenRowset", "[dst].[CustomerOrders]");
+            Path(mp, c, sc); Path(mp, o, so); Path(mp, late, sl);
+            PathTo(mp, sc, 0, mj, 0); PathTo(mp, so, 0, mj, 1);
+            PathTo(mp, mj, 0, mg, 0); PathTo(mp, sl, 0, mg, 1);
+            Path(mp, mg, dst);
+            FinishPackage(p);
+        }
+
+        private void T22()
+        {
+            Package p = NewPackage("T22_CacheTransform", "AdfNative-Medium", "AdfNative-Medium", false,
+                "G15: Cache Transform fills a file-backed Cache connection manager (.caw) in one data flow; a Lookup in cache mode reads it in the next. Mapping Data Flow cached lookup.");
+            ConnectionManager cache = p.Connections.Add("CACHE");
+            cache.Name = "Product cache";
+            SetCmProp(cache, "UseFile", true);
+            SetCmProp(cache, "FileName", s.LandingPath + "\\cache\\product.caw");
+            // Keep the TaskHosts from Add: linking Executables fetched back from p.Executables breaks SaveToXml (see BuildCopy).
+            TaskHost fillHost = AddTask(p, "Data Flow Task", "STOCK:PipelineTask", "Fill product cache");
+            MainPipe fill = fillHost == null ? null : (MainPipe)fillHost.InnerObject;
+            IDTSComponentMetaData100 src = AddComponent(fill, "OLE DB Source", "Read products");
+            UseConnection(src, cmSql); SetCompProp(src, "AccessMode", 2);
+            SetCompProp(src, "SqlCommand", "SELECT ProductId, Category FROM src.Product;");
+            IDTSComponentMetaData100 ct = AddComponent(fill, "Cache Transform", "Write cache");
+            UseConnection(ct, cache);
+            Path(fill, src, ct);
+
+            TaskHost useHost = AddTask(p, "Data Flow Task", "STOCK:PipelineTask", "Use product cache");
+            MainPipe use = useHost == null ? null : (MainPipe)useHost.InnerObject;
+            IDTSComponentMetaData100 src2 = AddComponent(use, "OLE DB Source", "Read customers");
+            UseConnection(src2, cmSql); SetCompProp(src2, "AccessMode", 2);
+            SetCompProp(src2, "SqlCommand", "SELECT CustomerId, ProductId FROM src.Customer;");
+            IDTSComponentMetaData100 look = AddComponent(use, "Lookup", "Lookup category from cache");
+            SetCompProp(look, "ConnectionType", 1);   // 1 = Cache connection manager
+            UseConnection(look, cache);
+            IDTSComponentMetaData100 dst = AddComponent(use, "OLE DB Destination", "Write dst.CustomerCategory");
+            UseConnection(dst, cmSql); SetCompProp(dst, "AccessMode", 3);
+            SetCompProp(dst, "OpenRowset", "[dst].[CustomerCategory]");
+            Path(use, src2, look); Path(use, look, dst);
+            Link(p, fillHost, useHost, DTSExecResult.Success, null);
+            FinishPackage(p);
+        }
+
+        private void T23()
+        {
+            Package p = NewPackage("T23_MoreTransforms", "AdfNative-Medium", "AdfNative-Medium", false,
+                "G16: Pivot, Unpivot, Character Map, Copy Column, Row Sampling, Percentage Sampling and Audit. All map to Mapping Data Flow transformations.");
+            MainPipe mp = AddDataFlow(p, "Reshape sales");
+            IDTSComponentMetaData100 src = AddComponent(mp, "OLE DB Source", "Read sales");
+            UseConnection(src, cmSql); SetCompProp(src, "AccessMode", 2);
+            SetCompProp(src, "SqlCommand", "SELECT CustomerId, Region, Amount FROM src.Customer;");
+            IDTSComponentMetaData100 rs  = AddComponent(mp, "Row Sampling", "Sample 1000 rows");
+            SetCompProp(rs, "SamplingValue", 1000);
+            IDTSComponentMetaData100 ps  = AddComponent(mp, "Percentage Sampling", "Sample 10 percent");
+            SetCompProp(ps, "SamplingValue", 10);
+            IDTSComponentMetaData100 cm  = AddComponent(mp, "Character Map", "Upper-case region");
+            IDTSComponentMetaData100 cc  = AddComponent(mp, "Copy Column", "Copy amount");
+            IDTSComponentMetaData100 au  = AddComponent(mp, "Audit", "Add package name");
+            IDTSComponentMetaData100 pv  = AddComponent(mp, "Pivot", "Pivot by region");
+            IDTSComponentMetaData100 up  = AddComponent(mp, "Unpivot", "Unpivot regions");
+            IDTSComponentMetaData100 cnt = AddComponent(mp, "Row Count", "Count");
+            p.Variables.Add("Rows", false, "User", 0);
+            SetCompProp(cnt, "VariableName", "User::Rows");
+            Path(mp, src, rs); Path(mp, rs, ps); Path(mp, ps, cm); Path(mp, cm, cc);
+            Path(mp, cc, au); Path(mp, au, pv); Path(mp, pv, up); Path(mp, up, cnt);
+            FinishPackage(p);
+        }
+
+        private void T24()
+        {
+            Package p = NewPackage("T24_ImportExportColumn", "KeepOnSsisVm", "KeepOnSsisVm", false,
+                "G17: Import Column reads files into a BLOB column and Export Column writes BLOBs back out to files, row by row. No ADF equivalent: KeepOnSsisVm.");
+            MainPipe imp = AddDataFlow(p, "Import documents");
+            IDTSComponentMetaData100 src = AddComponent(imp, "OLE DB Source", "Read document list");
+            UseConnection(src, cmSql); SetCompProp(src, "AccessMode", 2);
+            SetCompProp(src, "SqlCommand", "SELECT DocumentId, FilePath FROM src.DocumentList;");
+            IDTSComponentMetaData100 ic = AddComponent(imp, "Import Column", "Load file contents");
+            IDTSComponentMetaData100 dst = AddComponent(imp, "OLE DB Destination", "Write dst.Document");
+            UseConnection(dst, cmSql); SetCompProp(dst, "AccessMode", 3);
+            SetCompProp(dst, "OpenRowset", "[dst].[Document]");
+            Path(imp, src, ic); Path(imp, ic, dst);
+
+            MainPipe exp = AddDataFlow(p, "Export documents");
+            IDTSComponentMetaData100 src2 = AddComponent(exp, "OLE DB Source", "Read documents");
+            UseConnection(src2, cmSql); SetCompProp(src2, "AccessMode", 2);
+            SetCompProp(src2, "SqlCommand", "SELECT FilePath, Content FROM dst.Document;");
+            IDTSComponentMetaData100 ec = AddComponent(exp, "Export Column", "Write files");
+            Path(exp, src2, ec);
+            FinishPackage(p);
+        }
+
+        private void T25()
+        {
+            Package p = NewPackage("T25_RecordsetDestination", "KeepOnSsisVm", "KeepOnSsisVm", false,
+                "G18: Recordset Destination fills an Object variable in memory; a Foreach ADO loop then iterates it. In-memory hand-off between tasks has no ADF equivalent: KeepOnSsisVm.");
+            p.Variables.Add("Customers", false, "User", new object());
+            p.Variables.Add("CustomerId", false, "User", 0);
+            TaskHost dfHost = AddTask(p, "Data Flow Task", "STOCK:PipelineTask", "Load customers to recordset");
+            MainPipe mp = dfHost == null ? null : (MainPipe)dfHost.InnerObject;
+            IDTSComponentMetaData100 src = AddComponent(mp, "OLE DB Source", "Read customers");
+            UseConnection(src, cmSql); SetCompProp(src, "AccessMode", 2);
+            SetCompProp(src, "SqlCommand", "SELECT CustomerId FROM src.Customer;");
+            IDTSComponentMetaData100 rd = AddComponent(mp, "Recordset Destination", "Hold in User::Customers");
+            SetCompProp(rd, "VariableName", "User::Customers");
+            Path(mp, src, rd);
+            ForEachLoop fe = (ForEachLoop)p.Executables.Add("STOCK:FOREACHLOOP");
+            fe.Name = "Each customer in recordset";
+            Dictionary<string, object> props = new Dictionary<string, object>();
+            props["DataObjectVariable"] = "User::Customers";
+            if (SetEnumerator(fe, "Foreach ADO Enumerator", props)) MapLoopVariable(fe, "User::CustomerId", 0);
+            AddExecuteSql(fe, "Process customer", cmSql, "EXEC etl.usp_Process_Customer ?;");
+            Link(p, dfHost, fe, DTSExecResult.Success, null);
+            FinishPackage(p);
+        }
+
+        private void T26()
+        {
+            Package p = NewPackage("T26_FlatFileFormats", "AdfNative-Medium", "AdfNative-Medium", false,
+                "G20: flat file variants - fixed width, ragged right, pipe-delimited UTF-8 (code page 65001) and a Multiple Flat Files connection over a wildcard.");
+            ConnectionManager fixedW = AddFlatFile(p, "Mainframe fixed width", s.LandingPath + "\\in\\gl_extract.dat", "FixedWidth", 1252, null);
+            ConnectionManager ragged = AddFlatFile(p, "Ragged right feed", s.LandingPath + "\\in\\ragged.txt", "RaggedRight", 1252, null);
+            ConnectionManager pipe   = AddFlatFile(p, "Pipe delimited UTF-8", s.LandingPath + "\\in\\customers_pipe.txt", "Delimited", 65001, "|");
+            ConnectionManager multi = p.Connections.Add("MULTIFLATFILE");
+            multi.Name = "Daily files";
+            multi.ConnectionString = s.LandingPath + "\\in\\daily_*.csv";
+            ConnectionManager[] sources = new ConnectionManager[] { fixedW, ragged, pipe, multi };
+            MainPipe mp = AddDataFlow(p, "Read flat file variants");
+            IDTSComponentMetaData100 union = AddComponent(mp, "Union All", "Combine");
+            foreach (ConnectionManager ff in sources)
+            {
+                IDTSComponentMetaData100 src = AddComponent(mp, "Flat File Source", "Read " + ff.Name);
+                UseConnection(src, ff);
+                if (union != null && src != null && src.OutputCollection.Count > 0)
+                {
+                    try { IDTSPath100 path = mp.PathCollection.New(); path.AttachPathAndPropagateNotifications(src.OutputCollection[0], union.InputCollection[union.InputCollection.Count - 1]); }
+                    catch (Exception ex) { Warn("Path " + src.Name + " -> Union not attached: " + ex.Message); }
+                }
+            }
+            FinishPackage(p);
+        }
+
+        private void T27()
+        {
+            Package p = NewPackage("T27_DynamicMail", "AdfNative-Medium", "AdfNative-Medium", false,
+                "G21: Send Mail Task inside an OnError handler with expression-driven subject/body and a local file attachment. ADF: Web activity to a Logic App, and the attachment must move to storage.");
+            ConnectionManager smtp = p.Connections.Add("SMTP");
+            smtp.Name = "Mail relay";
+            smtp.ConnectionString = "SmtpServer=smtp.example.test;UseWindowsAuthentication=False;EnableSsl=True;";
+            AddExecuteSql(p, "Load step", cmSql, "EXEC etl.usp_Load_Customer;");
+            DtsEventHandler onError = (DtsEventHandler)p.EventHandlers.Add("OnError");
+            TaskHost m = AddTask(onError, "Send Mail Task", "STOCK:SendMailTask", "Mail error report");
+            if (m != null)
+            {
+                SetProp(m, "SmtpConnection", smtp.ID);
+                SetProp(m, "FromLine", "etl@example.test");
+                SetProp(m, "ToLine", "etl-team@example.test");
+                SetProp(m, "Subject", "AssessmentTests T27 failed");
+                SetProp(m, "MessageSource", "See attachment.");
+                SetProp(m, "FileAttachments", "C:\\ETL\\logs\\T27_error_rows.csv");
+                m.SetExpression("Subject", "\"Package \" + @[System::PackageName] + \" failed at \" + @[System::SourceName]");
+                m.SetExpression("MessageSource", "@[System::ErrorDescription]");
+            }
+            FinishPackage(p);
+        }
+
+        // ------------------------------------------------------------------ helpers used by T16-T27
+        /// <summary>Sets an enum property on the task's inner object by enum member name (e.g. SqlStatementSourceType).</summary>
+        private void SetTaskEnum(TaskHost th, string prop, string memberName)
+        {
+            if (th == null) return;
+            try
+            {
+                object inner = th.InnerObject;
+                System.Reflection.PropertyInfo pi = inner.GetType().GetProperty(prop);
+                if (pi == null) { Warn(th.Name + ": no property " + prop); return; }
+                pi.SetValue(inner, Enum.Parse(pi.PropertyType, memberName), null);
+            }
+            catch (Exception ex) { Warn("Could not set " + prop + "=" + memberName + " on " + th.Name + ": " + ex.Message); }
+        }
+
+        /// <summary>Adds an Execute SQL result binding (result name or ordinal -> variable) through reflection.</summary>
+        private void AddResultBinding(TaskHost th, string resultName, string variable)
+        {
+            if (th == null) return;
+            try
+            {
+                object inner = th.InnerObject;
+                object bindings = inner.GetType().GetProperty("ResultSetBindings").GetValue(inner, null);
+                object b = bindings.GetType().GetMethod("Add", Type.EmptyTypes).Invoke(bindings, null);
+                b.GetType().GetProperty("ResultName").SetValue(b, resultName, null);
+                b.GetType().GetProperty("DtsVariableName").SetValue(b, variable, null);
+            }
+            catch (Exception ex) { Warn("Result binding " + resultName + " -> " + variable + " not added on " + th.Name + ": " + ex.Message); }
+        }
+
+        private void SetCmProp(ConnectionManager cm, string prop, object value)
+        {
+            try { cm.Properties[prop].SetValue(cm, value); }
+            catch (Exception ex) { Warn("Could not set " + prop + " on " + cm.Name + ": " + ex.Message); }
+        }
+
+        /// <summary>Creates a Foreach enumerator by catalogue display name and sets its properties. False when not installed.</summary>
+        private bool SetEnumerator(ForEachLoop fe, string displayName, Dictionary<string, object> props)
+        {
+            ForEachEnumeratorInfo info = null;
+            foreach (ForEachEnumeratorInfo i in app.ForEachEnumeratorInfos)
+                if (string.Equals(i.Name, displayName, StringComparison.OrdinalIgnoreCase)) { info = i; break; }
+            if (info == null) { Skip(displayName); return false; }
+            ForEachEnumeratorHost host = info.CreateNew();
+            foreach (KeyValuePair<string, object> kv in props)
+            {
+                try { host.Properties[kv.Key].SetValue(host, kv.Value); }
+                catch (Exception ex) { Warn(displayName + " property " + kv.Key + " not set: " + ex.Message); }
+            }
+            fe.ForEachEnumerator = host;
+            return true;
+        }
+
+        private void MapLoopVariable(ForEachLoop fe, string variable, int valueIndex)
+        {
+            ForEachVariableMapping map = fe.VariableMappings.Add();
+            map.VariableName = variable;
+            map.ValueIndex = valueIndex;
+        }
+
+        /// <summary>Flat file connection with a format, code page and (for Delimited) one column using the given delimiter.</summary>
+        private ConnectionManager AddFlatFile(Package p, string name, string path, string format, int codePage, string delimiter)
+        {
+            ConnectionManager ff = p.Connections.Add("FLATFILE");
+            ff.Name = name;
+            ff.ConnectionString = path;
+            SetCmProp(ff, "Format", format);
+            SetCmProp(ff, "CodePage", codePage);
+            if (codePage == 65001) SetCmProp(ff, "Unicode", false);
+            try
+            {
+                RtWrapper.IDTSConnectionManagerFlatFile100 ffi = (RtWrapper.IDTSConnectionManagerFlatFile100)ff.InnerObject;
+                string[] cols = new string[] { "RecordKey", "Payload" };
+                for (int c = 0; c < cols.Length; c++)
+                {
+                    RtWrapper.IDTSConnectionManagerFlatFileColumn100 col = ffi.Columns.Add();
+                    ((RtWrapper.IDTSName100)col).Name = cols[c];
+                    col.DataType = RtWrapper.DataType.DT_STR;
+                    col.MaximumWidth = 50;
+                    bool last = c == cols.Length - 1;
+                    if (format == "FixedWidth") { col.ColumnType = "FixedWidth"; col.ColumnWidth = 10; }
+                    else if (format == "RaggedRight") { col.ColumnType = last ? "Delimited" : "FixedWidth"; col.ColumnWidth = 10; if (last) col.ColumnDelimiter = "\r\n"; }
+                    else { col.ColumnType = "Delimited"; col.ColumnDelimiter = last ? "\r\n" : (delimiter ?? ","); }
+                }
+            }
+            catch (Exception ex) { Warn("Columns not defined on " + name + ": " + ex.Message); }
+            return ff;
         }
     }
 }

@@ -22,7 +22,7 @@ The simplest build machine is the Dev SSIS server itself, which already has the 
 ```powershell
 .\scripts\test-packages\03_Test-AssessmentRouting.ps1
 ```
-Expect `48 passed, 0 failed`. If this fails, stop: the assessment script or the fixtures changed.
+Expect `67 passed, 0 failed`. If this fails, stop: the assessment script or the fixtures changed.
 
 ## 2. Build the project
 
@@ -32,7 +32,7 @@ powershell.exe -File .\scripts\test-packages\01_New-SsisTestProject.ps1 -TestDbS
 
 Check `build\build_manifest.csv`:
 
-* `Built = True` for T01–T13. T14/T15 may be `False` when Fuzzy Lookup or the CDC/Oracle components
+* `Built = True` for T01–T13 and T16–T27. T14/T15 may be `False` when Fuzzy Lookup or the CDC/Oracle components
   are not installed — expected; the fixtures cover those rules.
 * `Warnings` should be empty. A warning means a property name differed on this SSIS version; the
   package still builds, but note it for the next revision.

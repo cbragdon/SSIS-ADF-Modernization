@@ -140,7 +140,7 @@
     .\01_Invoke-SsisModernizationAssessment.ps1 -PackageFolder 'C:\Repos\ETL\SSIS' -TargetSsisVersion 2022
 
 .NOTES
-    Version : 2.1.0
+    Version : 2.2.0
     Purpose : Replaces 01_run_dma_assessment.ps1 (which queried non-existent catalog columns and could not
               determine task types). This script does not use Data Migration Assistant.
     Compat  : Windows PowerShell 5.1 and PowerShell 7.x. No SqlServer module dependency (uses .NET SqlClient).
@@ -314,7 +314,7 @@ $RuleTable = @(
     New-Rule Enumerator 'Hdfs|Hadoop'                  'Foreach HDFS File Enumerator' KeepOnSsisVm 'Removed2025' Review 'Hadoop components removed in SQL Server 2025 SSIS.'
     New-Rule Enumerator 'SMO'                          'Foreach SMO Enumerator'      KeepOnSsisVm 'Deprecated2025' NeedsConfiguration 'SDS connection type in some Foreach enumerators deprecated in SQL Server 2025; verify.'
     New-Rule Enumerator 'File'                         'Foreach File Enumerator'     AdfNative-Medium '' NeedsConfiguration 'ADF Get Metadata + ForEach; Self-hosted IR for file shares.'
-    New-Rule Enumerator 'ADO|Item|Variable|NodeList|FromVar|AzureBlob|DataLake' 'Foreach ADO/Item/Variable/NodeList Enumerator' AdfNative-Medium '' Compatible 'ADF Lookup + ForEach.'
+    New-Rule Enumerator 'ADO|SchemaRowset|Item|Variable|NodeList|FromVar|AzureBlob|DataLake' 'Foreach ADO/Item/Variable/NodeList Enumerator' AdfNative-Medium '' Compatible 'ADF Lookup + ForEach.'
 
     # ---------------- Data flow components: SQL Server 2025 removals / discontinued ----------------
     New-Rule Component 'CDCSrc|CdcSource'              'CDC Source (Attunity)'       KeepOnSsisVm 'Removed2025' Review 'Removed in SQL Server 2025 SSIS.'
@@ -365,7 +365,35 @@ $PropertyRule = @{
     ErrorRows     = New-Rule Component '' 'Error-row redirection' AdfNative-Medium '' Compatible 'Error/truncation rows are redirected to an error output. ADF Copy can only skip and log incompatible rows; routing them to a table needs a Mapping Data Flow or staging + validation SQL.'
     ExprPath      = New-Rule Connection '' 'Local drive / UNC file path (set by expression)' AdfNative-Medium '' NeedsConfiguration 'The connection string expression resolves to a local or UNC path at run time (literal or variable/parameter default). Same reachability needs as a literal path: Self-hosted IR for ADF; VNet + file share access for Azure-SSIS IR.'
     LoggingOnly   = New-Rule Connection '' 'Logging-only connection' AdfNative-Low '' Compatible 'Used only by a package log provider. Logging plumbing, not a data path, so it does not affect the route.'
+    OpaqueSql     = New-Rule Task '' 'SQL statement from variable / file (opaque SQL)' AdfNative-Medium '' Compatible 'SqlStatementSource is a variable or a file connection, so the SQL that runs is not in the package. Capture the statement(s) and confirm they are plain set-based SQL before mapping to an ADF Script / Stored Procedure activity.'
+    FullResultSet = New-Rule Task '' 'Execute SQL full result set' AdfNative-Low '' Compatible 'ResultSet=Full result set into an Object variable. ADF Lookup returns at most 5,000 rows / 4 MB; larger sets need a staging table or a ForEach over a query.'
+    FixedWidth    = New-Rule Connection '' 'Fixed-width / ragged-right flat file' AdfNative-Medium '' Compatible 'ADF delimited text has no fixed-width format: parse with a Mapping Data Flow (substring derived columns) or load whole lines and split in SQL.'
 }
+# Script Task / Script Component code inventory. Each pattern is matched against the script source (comment lines
+# removed) and the project file references; a hit becomes a 'Script dependency' evidence item. The route stays
+# KeepOnSsisVm (set by the script itself); the value is the dependency list and the Azure-SSIS IR fit.
+# Literal values are never written out: only the dependency name and the script file name.
+$ScriptDependencyRule = @(
+    @{ Name = 'ADO.NET SqlClient';            AzureIr = 'Compatible';         Pattern = 'System\.Data\.SqlClient|Microsoft\.Data\.SqlClient|\bSqlConnection\b' }
+    @{ Name = 'OLE DB (System.Data.OleDb)';   AzureIr = 'NeedsConfiguration'; Pattern = 'System\.Data\.OleDb|\bOleDbConnection\b' }
+    @{ Name = 'ODBC (System.Data.Odbc)';      AzureIr = 'NeedsCustomSetup';   Pattern = 'System\.Data\.Odbc|\bOdbcConnection\b' }
+    @{ Name = 'Zip (System.IO.Compression)';  AzureIr = 'Compatible';         Pattern = 'System\.IO\.Compression|\bZipFile\b' }
+    @{ Name = 'Third-party zip library';      AzureIr = 'NeedsCustomSetup';   Pattern = 'Ionic\.Zip|ICSharpCode\.SharpZipLib|SevenZip' }
+    @{ Name = 'Network / HTTP / FTP / mail';  AzureIr = 'NeedsConfiguration'; Pattern = 'System\.Net\b|\b(WebClient|HttpClient|WebRequest|FtpWebRequest|SmtpClient)\b' }
+    @{ Name = 'Office Interop';               AzureIr = 'NeedsCustomSetup';   Pattern = 'Microsoft\.Office\.Interop' }
+    @{ Name = 'Active Directory';             AzureIr = 'NeedsConfiguration'; Pattern = 'System\.DirectoryServices' }
+    @{ Name = 'SFTP library';                 AzureIr = 'NeedsCustomSetup';   Pattern = 'WinSCP|Renci\.SshNet' }
+    @{ Name = 'External process';             AzureIr = 'NeedsCustomSetup';   Pattern = 'Process\.Start\b|\bnew\s+Process\b|\bShell\s*\(' }
+    @{ Name = 'Registry access';              AzureIr = 'Review';             Pattern = 'Microsoft\.Win32|\bRegistry\.(LocalMachine|CurrentUser|GetValue|SetValue)' }
+    @{ Name = 'File system I/O';              AzureIr = 'NeedsConfiguration'; Pattern = '\b(File|Directory)\.\w+\s*\(|\b(FileInfo|DirectoryInfo|DriveInfo|StreamReader|StreamWriter|FileStream)\b' }
+    @{ Name = 'Hard-coded connection string'; AzureIr = 'NeedsConfiguration'; Pattern = '"[^"\r\n]*(Data Source|Server|Initial Catalog|Provider)\s*=[^"\r\n]*"' }
+    @{ Name = 'Hard-coded local / UNC path';  AzureIr = 'NeedsConfiguration'; Pattern = '"@?\\{2,4}[\w$.-]+\\|"[A-Za-z]:\\' }
+    @{ Name = 'Hard-coded URL';               AzureIr = 'NeedsConfiguration'; Pattern = '"(https?|ftps?|sftp)://' }
+)
+# Project file references that ship with .NET Framework or the SSIS runtime. Anything else is a custom assembly
+# that has to be in the GAC of every runtime (Azure-SSIS IR: custom setup).
+$FrameworkReferencePattern = '^(System|Microsoft\.SqlServer|Microsoft\.CSharp|Microsoft\.VisualBasic|mscorlib|Microsoft\.VisualStudio\.Tools\.Applications|Microsoft\.Office\.Interop)\b'
+$SqlTaskNs = 'www.microsoft.com/sqlserver/dts/tasks/sqltask'
 # DTSConfigurationType (Microsoft.SqlServer.Dts.Runtime). I* = indirect: the location is held in an environment variable.
 $ConfigurationTypeName = @{
     '0' = 'ParentVariable'; '1' = 'ConfigFile'; '2' = 'EnvVariable'; '3' = 'RegEntry'; '4' = 'IParentVariable'
@@ -515,6 +543,7 @@ function Get-ConnectionFinding {
           LocalOrUncPath   - file path on a drive letter or UNC share (reachability from any cloud runtime)
           ExpressionDriven - connection string set by an expression/parameter; static value may be misleading
           ExpressionLocalOrUncPath - the expression resolves (literal or variable/parameter default) to a local/UNC path
+          FixedWidthOrRagged - flat file format FixedWidth or RaggedRight (no ADF delimited-text equivalent)
     #>
     param([Parameter(Mandatory)]$CmNode, [Parameter(Mandatory)]$Ns, [hashtable]$ValueLookup = @{})
     $creation = Get-DtsAttr $CmNode 'CreationName'
@@ -528,6 +557,7 @@ function Get-ConnectionFinding {
     $flags = New-Object System.Collections.Generic.List[string]
     if ($connStr -match 'Integrated Security\s*=\s*(SSPI|True)|Trusted_Connection\s*=\s*(yes|true)') { $flags.Add('WindowsAuth') }
     if ($connStr -match $LocalOrUncPattern) { $flags.Add('LocalOrUncPath') }
+    if ((Get-DtsAttr $inner 'Format') -in @('FixedWidth', 'RaggedRight')) { $flags.Add('FixedWidthOrRagged') }
     $connExpr = $CmNode.SelectSingleNode("DTS:PropertyExpression[@DTS:Name='ConnectionString']", $Ns)
     if ($connExpr) {
         $flags.Add('ExpressionDriven')
@@ -568,6 +598,39 @@ function Get-ExpressionCandidate {
     return , $out.ToArray()
 }
 
+function Get-ScriptDependency {
+    <#
+        Inventories one script's dependencies. Code is the script source (all source files joined); References are
+        the assembly names from the .csproj/.vbproj. Returns one PSCustomObject per dependency: Name, AzureIr.
+    #>
+    param([string]$Code, [string[]]$References = @())
+    # Drop whole-line comments (C# //, VB ') and C# block comments so commented-out code does not count.
+    $clean = [regex]::Replace($Code, '(?s)/\*.*?\*/', '')
+    $clean = (@($clean -split "`r?`n" | Where-Object { $_ -notmatch "^\s*(//|')" }) -join "`n")
+    $found = New-Object System.Collections.Generic.List[object]
+    foreach ($d in $ScriptDependencyRule) {
+        if ($clean -match $d.Pattern -or @($References | Where-Object { $_ -match $d.Pattern }).Count -gt 0) {
+            $found.Add([PSCustomObject]@{ Name = $d.Name; AzureIr = $d.AzureIr })
+        }
+    }
+    foreach ($ref in $References) {
+        if ($ref -and $ref -notmatch $FrameworkReferencePattern -and $ref -notmatch 'Ionic\.Zip|ICSharpCode|SevenZip|WinSCP|Renci\.SshNet') {
+            $found.Add([PSCustomObject]@{ Name = ('Custom assembly reference ({0})' -f $ref); AzureIr = 'NeedsCustomSetup' })
+        }
+    }
+    return $found
+}
+
+function Add-ScriptDependencyItems {
+    <# Adds one evidence item per script dependency and records the names for the ScriptDependencies column. #>
+    param($Result, [string]$Path, [string]$Code, [string[]]$References = @(), [bool]$Disabled)
+    foreach ($d in (Get-ScriptDependency -Code $Code -References $References)) {
+        if (-not $Disabled) { [void]$Result.ScriptDependencies.Add($d.Name) }
+        $Result.Items.Add([PSCustomObject]@{ Scope = 'ScriptDependency'; Path = $Path; Identity = $d.Name; Disabled = $Disabled
+            Rule = (New-Rule ScriptDependency '' ('Script dependency: {0}' -f $d.Name) KeepOnSsisVm '' $d.AzureIr 'Found in the script source or project references. Must be available on any runtime that runs this script, and is part of any rewrite (Azure Function / Batch).') })
+    }
+}
+
 function Test-DisabledInTree {
     <# True when the executable or any container / event handler above it is disabled: SSIS never runs the children of a disabled container. #>
     param([Parameter(Mandatory)]$Node, [Parameter(Mandatory)]$Root)
@@ -597,6 +660,8 @@ function Get-PackageAnalysis {
         TransactionRequiredCount = 0; CheckpointsEnabled = $false; ErrorRowRedirectCount = 0
         Configurations = New-Object System.Collections.Generic.List[string]
         LogProviders = New-Object System.Collections.Generic.List[string]
+        ScriptDependencies = New-Object System.Collections.Generic.SortedSet[string]
+        OpaqueSqlCount = 0
     }
     $xml = New-Object System.Xml.XmlDocument
     $xml.XmlResolver = $null    # never resolve external entities
@@ -715,6 +780,9 @@ function Get-PackageAnalysis {
         if ($f.Flags -contains 'ExpressionLocalOrUncPath') {
             $result.Items.Add([PSCustomObject]@{ Scope = 'Connection'; Path = "Connection[$($f.Name)]"; Identity = 'ExpressionLocalOrUncPath'; Rule = $PropertyRule.ExprPath; Disabled = $false })
         }
+        if ($f.Flags -contains 'FixedWidthOrRagged') {
+            $result.Items.Add([PSCustomObject]@{ Scope = 'Connection'; Path = "Connection[$($f.Name)]"; Identity = 'FixedWidthOrRagged'; Rule = $PropertyRule.FixedWidth; Disabled = $false })
+        }
     }
 
     # ---- Executables: every task and container, including those inside event handlers ----
@@ -731,6 +799,41 @@ function Get-PackageAnalysis {
         if ((Get-DtsAttr $exe 'TransactionOption') -eq '2') {
             if (-not $disabled) { $result.TransactionRequiredCount++ }
             $result.Items.Add([PSCustomObject]@{ Scope = 'Task'; Path = $path; Identity = 'TransactionOption=Required'; Rule = $PropertyRule.Transaction; Disabled = $disabled })
+        }
+
+        # Execute SQL Task: where the statement comes from and what it returns. Defaults (DirectInput, no result
+        # set) are omitted from the XML. A statement set by a property expression stays visible in the package and
+        # is not flagged here.
+        if ($rule.Name -eq 'Execute SQL Task') {
+            $sqlData = $exe.SelectSingleNode("DTS:ObjectData/*[local-name()='SqlTaskData']", $ns)
+            if ($sqlData) {
+                $srcType = $sqlData.GetAttribute('SqlStmtSourceType', $SqlTaskNs)
+                if ($srcType -in @('Variable', 'FileConnection')) {
+                    if (-not $disabled) { $result.OpaqueSqlCount++ }
+                    $result.Items.Add([PSCustomObject]@{ Scope = 'Task'; Path = $path; Identity = ('SqlStmtSourceType={0}' -f $srcType); Rule = $PropertyRule.OpaqueSql; Disabled = $disabled })
+                }
+                $resType = $sqlData.GetAttribute('ResultType', $SqlTaskNs)
+                if ($resType -eq 'ResultSetType_Rowset') {
+                    $result.Items.Add([PSCustomObject]@{ Scope = 'Task'; Path = $path; Identity = ('ResultType={0}' -f $resType); Rule = $PropertyRule.FullResultSet; Disabled = $disabled })
+                }
+            }
+        }
+
+        # Script Task: source files and project references are stored in the package (ScriptProject/ProjectItem).
+        if ($rule.Name -eq 'Script Task') {
+            $sp = $exe.SelectSingleNode("DTS:ObjectData/*[local-name()='ScriptProject']", $ns)
+            if ($sp) {
+                $code = New-Object System.Text.StringBuilder
+                $refs = New-Object System.Collections.Generic.List[string]
+                foreach ($pi in $sp.SelectNodes("*[local-name()='ProjectItem']")) {
+                    $piName = $pi.GetAttribute('Name')
+                    if ($piName -match '\.(cs|vb)$') { [void]$code.AppendLine($pi.InnerText) }
+                    elseif ($piName -match '\.(csproj|vbproj)$') {
+                        foreach ($m in [regex]::Matches($pi.InnerText, '<Reference\s+Include="([^",]+)')) { $refs.Add($m.Groups[1].Value.Trim()) }
+                    }
+                }
+                Add-ScriptDependencyItems -Result $result -Path $path -Code $code.ToString() -References $refs -Disabled $disabled
+            }
         }
 
         # Foreach Loop enumerator
@@ -764,7 +867,17 @@ function Get-PackageAnalysis {
                 $identity = '{0}|{1}' -f $classId, $userType
                 $cRule = Get-RuleMatch -Scope Component -Identity $identity
                 $result.ComponentCount++
-                if ($cRule.Name -eq 'Script Component') { $result.ScriptComponentCount++ }
+                if ($cRule.Name -eq 'Script Component') {
+                    $result.ScriptComponentCount++
+                    # SourceCode holds alternating file name / file content array elements.
+                    $scCode = New-Object System.Text.StringBuilder
+                    $scRefs = New-Object System.Collections.Generic.List[string]
+                    foreach ($ae in $comp.SelectNodes("properties/property[@name='SourceCode']/arrayElements/arrayElement")) {
+                        [void]$scCode.AppendLine($ae.InnerText)
+                        foreach ($m in [regex]::Matches($ae.InnerText, '<Reference\s+Include="([^",]+)')) { $scRefs.Add($m.Groups[1].Value.Trim()) }
+                    }
+                    Add-ScriptDependencyItems -Result $result -Path ('{0}\{1}' -f $path, $comp.GetAttribute('name')) -Code $scCode.ToString() -References $scRefs -Disabled $disabled
+                }
                 $result.Items.Add([PSCustomObject]@{ Scope = 'Component'; Path = ('{0}\{1}' -f $path, $comp.GetAttribute('name')); Identity = $identity; Rule = $cRule; Disabled = $disabled })
                 # Error outputs: any input/output/column set to redirect failing or truncated rows.
                 if ($comp.SelectNodes(".//*[@errorRowDisposition='RedirectRow' or @truncationRowDisposition='RedirectRow']").Count -gt 0) {
@@ -857,6 +970,7 @@ function Add-PackageResult {
         TransactionsRequired = $a.TransactionRequiredCount; CheckpointsEnabled = $a.CheckpointsEnabled
         ErrorRowRedirects = $a.ErrorRowRedirectCount; PackageConfigurations = ($a.Configurations -join '; ')
         LogProviders = ((@($a.LogProviders) | Sort-Object -Unique) -join '; ')
+        OpaqueSqlStatements = $a.OpaqueSqlCount; ScriptDependencies = (@($a.ScriptDependencies) -join '; ')
         ConnectionTypes = ((@($a.ConnFindings | ForEach-Object { $_.Rule.Name }) | Sort-Object -Unique) -join '; ')
         ChildPackages = ($a.Children -join '; '); RolledUpFrom = ''
         Executions = $null; FailedExecutions = $null; LastExecutionStart = $null; AvgDurationMin = $null; MaxDurationMin = $null

@@ -105,9 +105,9 @@ easier than the children it runs. `AzureSsisIrFit` reports Option B suitability 
 
 | Component | State |
 | --- | --- |
-| `01_Invoke-SsisModernizationAssessment.ps1` | Runs. Offline fixtures pass (48/48 checks, including route-reason checks). Routes for the 14 live-built AssessmentTests packages unchanged by v2.1.0. SSISDB/msdb/Agent queries not yet run against a live server. |
+| `01_Invoke-SsisModernizationAssessment.ps1` | Runs. Offline fixtures pass (67/67 checks, including route-reason checks). Routes for the 14 live-built AssessmentTests packages unchanged by v2.2.0. SSISDB/msdb/Agent queries not yet run against a live server. |
 | `03_Test-AssessmentRouting.ps1` | Runs. Fixtures mode verified, including a deliberate failing case. |
-| `01_New-SsisTestProject.ps1` | Embedded C# compiles (C# 5) against API stubs. **Not yet run against real SSIS assemblies.** Some property names (e.g. on FTP/Send Mail tasks) are set defensively and logged as warnings if they differ. |
+| `01_New-SsisTestProject.ps1` | v1.1.0. T01–T15 built and deployed on SQL Server 2025 (14 of 15; T15 needs the removed CDC/Oracle components). **T16–T27 are syntax-checked only, not yet compiled or run on SSIS.** Property names are set defensively and logged as warnings if they differ. |
 | `02_Deploy-SsisTestProject.ps1` | Guardrail verified. **Not yet run against SSISDB.** Use `-WhatIf` first. |
 | Rule patterns not yet verified | Microsoft Connector for Oracle CreationName (`MSORA`/`ORACLE`), maintenance-task type names, SDS deprecation match. |
 | `-ExportRewriteSpec` | Planned — next building block (see plan review). |

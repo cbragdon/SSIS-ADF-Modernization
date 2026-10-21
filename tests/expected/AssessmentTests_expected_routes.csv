@@ -1,16 +1,28 @@
-Source,Project,Package,TargetSsisVersion,ExpectedRoute,ExpectedEffectiveRoute,Covers
-SSISDB,AssessmentTests,T01_CopySqlAuth.dtsx,2025,AdfNative-Low,AdfNative-Low,Execute SQL; OLE DB source/destination; Data Conversion; SQL authentication; project connection manager; expression-driven connection string
-SSISDB,AssessmentTests,T02_CopyWindowsAuth.dtsx,2025,AdfNative-Medium,AdfNative-Medium,Windows authentication flag raises Low to Medium (Self-hosted IR)
-SSISDB,AssessmentTests,T03_TransformChain.dtsx,2025,AdfNative-Medium,AdfNative-Medium,Derived Column; Conditional Split; Lookup; Sort; Aggregate; Union All; Multicast; Row Count
-SSISDB,AssessmentTests,T04_ScriptTask.dtsx,2025,KeepOnSsisVm,KeepOnSsisVm,Script Task
-SSISDB,AssessmentTests,T05_ScriptComponent.dtsx,2025,KeepOnSsisVm,KeepOnSsisVm,Script Component inside a data flow
-SSISDB,AssessmentTests,T06_ContainersConstraints.dtsx,2025,AdfNative-Medium,AdfNative-Medium,Sequence; For Loop; Foreach File Enumerator; File System Task; UNC path; precedence constraints; OnError handler; property expressions
-SSISDB,AssessmentTests,T07_Parent.dtsx,2025,AdfNative-Low,KeepOnSsisVm,Execute Package (project reference) roll-up from child
-SSISDB,AssessmentTests,T08_Child.dtsx,2025,KeepOnSsisVm,KeepOnSsisVm,Child package with Script Task; package parameter
-SSISDB,AssessmentTests,T09_DisabledScriptTask.dtsx,2025,AdfNative-Low,AdfNative-Low,Disabled task excluded from routing
-SSISDB,AssessmentTests,T10_FlatFileToExcel.dtsx,2025,KeepOnSsisVm,KeepOnSsisVm,Flat File source over UNC; Excel destination; ACE provider
-SSISDB,AssessmentTests,T11_ParametersExpressions.dtsx,2025,AdfNative-Low,AdfNative-Low,Required/typed/sensitive package parameters; project parameter references; Expression Task
-SSISDB,AssessmentTests,T12_OleDbCommandScd.dtsx,2025,AdfNative-Medium,AdfNative-Medium,OLE DB Command; Slowly Changing Dimension
-SSISDB,AssessmentTests,T13_FtpAndSendMail.dtsx,2025,AdfNative-Medium,AdfNative-Medium,FTP Task; Send Mail Task; FTP and SMTP connection managers
-SSISDB,AssessmentTests,T14_FuzzyLookup.dtsx,2025,KeepOnSsisVm,KeepOnSsisVm,Fuzzy Lookup (built only if installed)
-SSISDB,AssessmentTests,T15_RemovedIn2025.dtsx,2025,Remediate2025,Remediate2025,SQL Server 2025 removed components (built only if installed)
+Source,Project,Package,TargetSsisVersion,ExpectedRoute,ExpectedEffectiveRoute,Covers,ExpectedReasons
+SSISDB,AssessmentTests,T01_CopySqlAuth.dtsx,2025,AdfNative-Low,AdfNative-Low,Execute SQL; OLE DB source/destination; Data Conversion; SQL authentication; project connection manager; expression-driven connection string,
+SSISDB,AssessmentTests,T02_CopyWindowsAuth.dtsx,2025,AdfNative-Medium,AdfNative-Medium,Windows authentication flag raises Low to Medium (Self-hosted IR),
+SSISDB,AssessmentTests,T03_TransformChain.dtsx,2025,AdfNative-Medium,AdfNative-Medium,Derived Column; Conditional Split; Lookup; Sort; Aggregate; Union All; Multicast; Row Count,
+SSISDB,AssessmentTests,T04_ScriptTask.dtsx,2025,KeepOnSsisVm,KeepOnSsisVm,Script Task,
+SSISDB,AssessmentTests,T05_ScriptComponent.dtsx,2025,KeepOnSsisVm,KeepOnSsisVm,Script Component inside a data flow,
+SSISDB,AssessmentTests,T06_ContainersConstraints.dtsx,2025,AdfNative-Medium,AdfNative-Medium,Sequence; For Loop; Foreach File Enumerator; File System Task; UNC path; precedence constraints; OnError handler; property expressions,
+SSISDB,AssessmentTests,T07_Parent.dtsx,2025,AdfNative-Low,KeepOnSsisVm,Execute Package (project reference) roll-up from child,
+SSISDB,AssessmentTests,T08_Child.dtsx,2025,KeepOnSsisVm,KeepOnSsisVm,Child package with Script Task; package parameter,
+SSISDB,AssessmentTests,T09_DisabledScriptTask.dtsx,2025,AdfNative-Low,AdfNative-Low,Disabled task excluded from routing,
+SSISDB,AssessmentTests,T10_FlatFileToExcel.dtsx,2025,KeepOnSsisVm,KeepOnSsisVm,Flat File source over UNC; Excel destination; ACE provider,
+SSISDB,AssessmentTests,T11_ParametersExpressions.dtsx,2025,AdfNative-Low,AdfNative-Low,Required/typed/sensitive package parameters; project parameter references; Expression Task,
+SSISDB,AssessmentTests,T12_OleDbCommandScd.dtsx,2025,AdfNative-Medium,AdfNative-Medium,OLE DB Command; Slowly Changing Dimension,
+SSISDB,AssessmentTests,T13_FtpAndSendMail.dtsx,2025,AdfNative-Medium,AdfNative-Medium,FTP Task; Send Mail Task; FTP and SMTP connection managers,
+SSISDB,AssessmentTests,T14_FuzzyLookup.dtsx,2025,KeepOnSsisVm,KeepOnSsisVm,Fuzzy Lookup (built only if installed),
+SSISDB,AssessmentTests,T15_RemovedIn2025.dtsx,2025,Remediate2025,Remediate2025,SQL Server 2025 removed components (built only if installed),
+SSISDB,AssessmentTests,T16_OpaqueSql.dtsx,2025,AdfNative-Medium,AdfNative-Medium,G04 Execute SQL statement from a variable and from a file connection,SQL statement from variable / file
+SSISDB,AssessmentTests,T17_ResultSets.dtsx,2025,AdfNative-Medium,AdfNative-Medium,G10 Execute SQL single-row and full result sets; Foreach ADO Enumerator over the Object variable,Foreach ADO/Item/Variable/NodeList Enumerator
+SSISDB,AssessmentTests,T18_ExcelSheetLoop.dtsx,2025,AdfNative-Medium,AdfNative-Medium,G11 Foreach ADO.NET Schema Rowset over worksheets; G19 Excel Source and Execute SQL on an Excel connection (ACE),Excel Source|Foreach ADO/Item/Variable/NodeList Enumerator
+SSISDB,AssessmentTests,T19_ExecuteProcess.dtsx,2025,KeepOnSsisVm,KeepOnSsisVm,G12 Execute Process Task with expression-driven arguments,Execute Process Task
+SSISDB,AssessmentTests,T20_BulkInsert.dtsx,2025,AdfNative-Medium,AdfNative-Medium,G13 Bulk Insert Task from a UNC file,Bulk Insert Task
+SSISDB,AssessmentTests,T21_MergeJoin.dtsx,2025,AdfNative-Medium,AdfNative-Medium,G14 Sort; Merge Join (two inputs); Merge,Transformation (Data Flow mappable)
+SSISDB,AssessmentTests,T22_CacheTransform.dtsx,2025,AdfNative-Medium,AdfNative-Medium,G15 Cache Transform; file-backed Cache connection; Lookup in cache mode,Cache
+SSISDB,AssessmentTests,T23_MoreTransforms.dtsx,2025,AdfNative-Medium,AdfNative-Medium,G16 Pivot; Unpivot; Character Map; Copy Column; Row and Percentage Sampling; Audit,Transformation (Data Flow mappable)
+SSISDB,AssessmentTests,T24_ImportExportColumn.dtsx,2025,KeepOnSsisVm,KeepOnSsisVm,G17 Import Column and Export Column,Export/Import Column
+SSISDB,AssessmentTests,T25_RecordsetDestination.dtsx,2025,KeepOnSsisVm,KeepOnSsisVm,G18 Recordset Destination into an Object variable; Foreach ADO loop over it,Recordset/DataReader Destination
+SSISDB,AssessmentTests,T26_FlatFileFormats.dtsx,2025,AdfNative-Medium,AdfNative-Medium,G20 fixed width; ragged right; pipe-delimited UTF-8; Multiple Flat Files,Fixed-width / ragged-right flat file
+SSISDB,AssessmentTests,T27_DynamicMail.dtsx,2025,AdfNative-Medium,AdfNative-Medium,G21 Send Mail in an OnError handler with expression subject/body and a local attachment,Send Mail Task
