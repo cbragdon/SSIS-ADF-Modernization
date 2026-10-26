@@ -36,8 +36,8 @@
        than the children it runs (EffectiveRoute). A child that cannot be resolved (external file/msdb
        reference) makes the parent's EffectiveRoute ReviewRequired: an unknown child is never assumed easy.
     6. Enriches with run history from catalog.executions (run count, failures, last run, average duration)
-       and optionally SQL Agent job steps (which jobs run each package, 32-bit /X86 execution - deprecated in
-       SQL Server 2025). Job schedules are not read.
+       and optionally SQL Agent job steps (which jobs run each package and their schedules, 32-bit /X86
+       execution - deprecated in SQL Server 2025).
     7. Writes timestamped CSVs plus a transcript log. Nothing is overwritten between runs.
     8. Writes a sprint backlog for developers and business units: sprint_backlog.csv (all servers) in the run
        folder, plus one workbook per source server, <ServerName>_SSIS_Migration_Assessment_<yyyyMMdd_HHmmss>.xlsx,
@@ -114,8 +114,9 @@
     depending on the legacy Integration Services Service, which is deprecated in SQL Server 2025.
 
 .PARAMETER IncludeAgentJobs
-    Read SQL Agent SSIS job steps to report which jobs run each package (AgentJobs) and detect 32-bit (/X86)
-    execution (Uses32BitJobStep). Job schedules are not read.
+    Read SQL Agent SSIS job steps to report which jobs run each package (AgentJobs), when those jobs are
+    scheduled to run (AgentSchedules, e.g. "DBA ETL: Daily at 01:00"), and detect 32-bit (/X86) execution
+    (Uses32BitJobStep).
 
 .PARAMETER HistoryDays
     Days of catalog.executions history to summarise (default 90). Bounded by SSISDB retention settings.
@@ -167,7 +168,7 @@
     .\01_Invoke-SsisModernizationAssessment.ps1 -PackageFolder 'C:\Repos\ETL\SSIS' -TargetSsisVersion 2022
 
 .NOTES
-    Version : 2.5.1
+    Version : 2.6.0
     Purpose : Replaces 01_run_dma_assessment.ps1 (which queried non-existent catalog columns and could not
               determine task types). This script does not use Data Migration Assistant.
     Compat  : Windows PowerShell 5.1 and PowerShell 7.x. No SqlServer module dependency (uses .NET SqlClient).
@@ -642,6 +643,37 @@ function New-SqlConnectionObject {
     }
     $b['Integrated Security'] = $true
     return New-Object System.Data.SqlClient.SqlConnection($b.ConnectionString)
+}
+
+function Format-AgentSchedule {
+    <# One msdb.dbo.sysschedules row in words, as SSMS describes it: "Weekly on Wed at 01:00",
+       "Daily every 15 minutes from 06:00 to 18:00", "When SQL Server Agent starts". #>
+    param([Parameter(Mandatory)]$S)
+    $time = { param([int]$t) '{0:00}:{1:00}' -f [math]::Floor($t / 10000), ([math]::Floor($t / 100) % 100) }
+    $days = 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'
+    $every = [int]$S.freq_recurrence_factor
+    $interval = [int]$S.freq_interval
+    $when = switch ([int]$S.freq_type) {
+        1   { 'Once on {0}' -f ([string]$S.active_start_date -replace '^(\d{4})(\d{2})(\d{2})$', '$1-$2-$3') }
+        4   { if ($interval -gt 1) { "Every $interval days" } else { 'Daily' } }
+        8   { $on = @(0..6 | Where-Object { $interval -band [math]::Pow(2, $_) } | ForEach-Object { $days[$_] }) -join ','
+              if ($every -gt 1) { "Every $every weeks on $on" } else { "Weekly on $on" } }
+        16  { 'Monthly on day {0}{1}' -f $interval, $(if ($every -gt 1) { " every $every months" } else { '' }) }
+        32  { $nth = @{ 1 = 'first'; 2 = 'second'; 4 = 'third'; 8 = 'fourth'; 16 = 'last' }[[int]$S.freq_relative_interval]
+              $what = if ($interval -ge 1 -and $interval -le 7) { $days[$interval - 1] } else { @{ 8 = 'day'; 9 = 'weekday'; 10 = 'weekend day' }[$interval] }
+              'Monthly on the {0} {1}{2}' -f $nth, $what, $(if ($every -gt 1) { " every $every months" } else { '' }) }
+        64  { 'When SQL Server Agent starts' }
+        128 { 'When the computer is idle' }
+        default { "Schedule type $($S.freq_type)" }
+    }
+    if ([int]$S.freq_type -in 4, 8, 16, 32) {
+        $unit = @{ 2 = 'seconds'; 4 = 'minutes'; 8 = 'hours' }[[int]$S.freq_subday_type]
+        $when += if ($unit) { ' every {0} {1} from {2} to {3}' -f $S.freq_subday_interval, $unit, (& $time $S.active_start_time), (& $time $S.active_end_time) }
+                 else { ' at {0}' -f (& $time $S.active_start_time) }
+    }
+    if ([int]$S.freq_type -eq 1) { $when += ' at {0}' -f (& $time $S.active_start_time) }
+    if (-not [bool]$S.ScheduleEnabled) { $when += ' (schedule disabled)' }
+    $when
 }
 
 function Invoke-ReadQuery {
@@ -1179,7 +1211,7 @@ function Add-PackageResult {
         ConnectionTypes = ((@($a.ConnFindings | ForEach-Object { $_.Rule.Name }) | Sort-Object -Unique) -join '; ')
         ChildPackages = ($a.Children -join '; '); RolledUpFrom = ''
         Executions = $null; FailedExecutions = $null; LastExecutionStart = $null; AvgDurationMin = $null; MaxDurationMin = $null
-        AgentJobs = ''; Uses32BitJobStep = $false; Drivers = $r.Drivers
+        AgentJobs = ''; AgentSchedules = ''; Uses32BitJobStep = $false; Drivers = $r.Drivers
     })
 }
 #endregion
@@ -1322,9 +1354,28 @@ FROM   dbo.sysjobs AS j JOIN dbo.sysjobsteps AS s ON s.job_id = j.job_id
 WHERE  s.subsystem = N'SSIS';
 "@)
             Write-Log -Message ("  SSIS Agent job steps: {0}" -f $steps.Count)
+            # Schedules of the jobs that have SSIS steps, described in words (built here, not with STRING_AGG,
+            # so SQL Server 2016 sources work too).
+            $schedRows = @(Invoke-ReadQuery -Server $Server -Database 'msdb' -Query @"
+SELECT j.name AS JobName, j.enabled AS JobEnabled, s.enabled AS ScheduleEnabled, s.freq_type, s.freq_interval, s.freq_subday_type,
+       s.freq_subday_interval, s.freq_relative_interval, s.freq_recurrence_factor, s.active_start_date, s.active_start_time, s.active_end_time
+FROM   dbo.sysjobs AS j
+LEFT JOIN dbo.sysjobschedules AS js ON js.job_id = j.job_id
+LEFT JOIN dbo.sysschedules AS s ON s.schedule_id = js.schedule_id
+WHERE  EXISTS (SELECT 1 FROM dbo.sysjobsteps AS st WHERE st.job_id = j.job_id AND st.subsystem = N'SSIS')
+ORDER BY j.name, s.schedule_id;
+"@)
+            $jobSchedules = @{}
+            foreach ($g in ($schedRows | Group-Object JobName)) {
+                $texts = @($g.Group | Where-Object { $_.freq_type -isnot [DBNull] -and $null -ne $_.freq_type } | ForEach-Object { Format-AgentSchedule $_ })
+                $jobText = if ($texts.Count) { $texts -join '; ' } else { 'no schedule (runs only when started by hand or by another job)' }
+                if (-not [bool]$g.Group[0].JobEnabled) { $jobText = "job disabled; $jobText" }
+                $jobSchedules[$g.Name] = $jobText
+            }
             foreach ($s in $steps) {
                 $JobSteps.Add([PSCustomObject]@{ RunId = $RunId; Environment = $Env; ServerInstance = $Server; JobName = $s.JobName
-                    JobEnabled = [bool]$s.JobEnabled; StepId = $s.StepId; StepName = $s.StepName; Uses32Bit = [bool]$s.Uses32Bit; Command = $s.Command })
+                    JobEnabled = [bool]$s.JobEnabled; StepId = $s.StepId; StepName = $s.StepName; Uses32Bit = [bool]$s.Uses32Bit
+                    JobSchedules = $(if ($jobSchedules.ContainsKey([string]$s.JobName)) { $jobSchedules[[string]$s.JobName] } else { '' }); Command = $s.Command })
             }
             # Match job steps to packages by catalog path (\SSISDB\folder\project\package.dtsx) or package name.
             foreach ($p in $Packages) {
@@ -1337,7 +1388,9 @@ WHERE  s.subsystem = N'SSIS';
                     ($p.SourceType -eq 'MSDB'   -and $_.Command -match ('/SQL\s+\S*\\' + [regex]::Escape($msdbName) + '\\?"'))
                 })
                 if ($hits.Count -gt 0) {
-                    $p.AgentJobs = (($hits | ForEach-Object { $_.JobName }) | Sort-Object -Unique) -join '; '
+                    $jobNames = @(($hits | ForEach-Object { [string]$_.JobName }) | Sort-Object -Unique)
+                    $p.AgentJobs = $jobNames -join '; '
+                    $p.AgentSchedules = (@($jobNames | ForEach-Object { '{0}: {1}' -f $_, $(if ($jobSchedules.ContainsKey($_)) { $jobSchedules[$_] } else { 'schedule not read' }) })) -join ' | '
                     if (@($hits | Where-Object Uses32Bit).Count -gt 0) {
                         $p.Uses32BitJobStep = $true
                         $p.Deprecated2025 = (@($p.Deprecated2025, '32-bit execution (/X86) in Agent job step') | Where-Object { $_ }) -join '; '
@@ -1509,6 +1562,7 @@ function New-SprintBacklog {
                 CalledBy = $(if ($calledBy.ContainsKey($p.Package)) { (@($calledBy[$p.Package]) | Sort-Object -Unique) -join '; ' } else { '' })
                 DecisionDrivers = ($drivers -join ' | '); AzureSsisIrFit = $p.AzureSsisIrFit; Removed2025 = $p.Removed2025
                 Usage = $usage; LastExecutionStart = $p.LastExecutionStart; AvgDurationMin = $p.AvgDurationMin; AgentJobs = $p.AgentJobs
+                AgentSchedules = $p.AgentSchedules
                 BusinessOwner = ''; Developer = ''; Sprint = ''; Status = ''; Decision = ''; Notes = ''
                 PlatformOrder = $plan.Order
             })
@@ -1640,7 +1694,7 @@ function Export-SprintBacklog {
     # ServerInstance (the name the run connected with) is left out: SourceServerName identifies the server.
     $columns = @('Environment', 'SourceServerName', 'Folder', 'Project', 'Package', 'PackageLocation', 'isMigrating',
                  'TargetPlatform', 'Route', 'WorkType', 'ComplexityBand', 'ComplexityScore', 'BuildOrder', 'DependsOn', 'CalledBy', 'DecisionDrivers', 'AzureSsisIrFit',
-                 'Removed2025', 'Usage', 'LastExecutionStart', 'AvgDurationMin', 'AgentJobs',
+                 'Removed2025', 'Usage', 'LastExecutionStart', 'AvgDurationMin', 'AgentJobs', 'AgentSchedules',
                  'BusinessOwner', 'Developer', 'Sprint', 'Status', 'Decision', 'Notes', 'WorkbookCreatedAt')
     # One creation time for the CSV and every sheet, local time with its UTC offset.
     $createdAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz')
@@ -1690,6 +1744,8 @@ function Export-SprintBacklog {
         Meaning = 'Set by the team: the package will be retired, not migrated. The assessment never sets No on its own.' })
     $legend.Add([PSCustomObject]@{ Item = 'SourceServerName'; Value = ''; TargetPlatform = ''; WorkType = ''
         Meaning = 'Name the source SQL Server reports for itself (@@SERVERNAME), read at run time, whatever alias or address the assessment connected with. (file) for packages read from disk.' })
+    $legend.Add([PSCustomObject]@{ Item = 'AgentSchedules'; Value = ''; TargetPlatform = ''; WorkType = ''
+        Meaning = 'When the SQL Agent jobs that run this package are scheduled (with -IncludeAgentJobs): "Job: schedule; schedule", jobs separated by |. Tells ADF orchestration what timing to reproduce.' })
     $legend.Add([PSCustomObject]@{ Item = 'WorkbookCreatedAt'; Value = ''; TargetPlatform = ''; WorkType = ''
         Meaning = 'Local date and time (with UTC offset) the CSV and workbook were written.' })
 

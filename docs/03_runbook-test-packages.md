@@ -99,6 +99,14 @@ SELECT COUNT(*) AS RowCnt, CHECKSUM_AGG(BINARY_CHECKSUM(CustomerId, CustomerName
 FROM SsisAssessmentTest.dst.Customer;
 ```
 
+Optional — check the SQL Agent reading (`-IncludeAgentJobs`). The test creates two **disabled** jobs that run
+T02 (32-bit), T04, T08 and the first msdb package, with four schedules, runs the assessment, checks the
+`AgentJobs`, `AgentSchedules` and `Uses32BitJobStep` columns, then deletes both jobs and confirms msdb is unchanged:
+
+```powershell
+.\scripts\test-packages\04_Test-AgentJobs.ps1 -ServerInstance <DevServer> -ConfirmDevelopment -TrustServerCertificate
+```
+
 ## 6. Remove
 
 ```powershell

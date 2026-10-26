@@ -45,7 +45,8 @@ SSIS-ADF-Modernization/
 │  └─ test-packages/
 │     ├─ 01_New-SsisTestProject.ps1   builds the AssessmentTests or (-Suite) ParityTests SSIS project
 │     ├─ 02_Deploy-SsisTestProject.ps1 idempotent deploy to SSISDB (Dev only), -Remove to clean up
-│     └─ 03_Test-AssessmentRouting.ps1 regression test: actual vs expected routes
+│     ├─ 03_Test-AssessmentRouting.ps1 regression test: actual vs expected routes
+│     └─ 04_Test-AgentJobs.ps1      regression test of the SQL Agent reading (two temporary disabled jobs)
 │  └─ parity/
 │     ├─ 01_Invoke-ParityTest.ps1     runs SSIS and ADF for each case, compares outputs, logs results
 │     └─ 02_Test-ParityHarness.ps1    known-answer self-test of the harness (CI)
@@ -80,6 +81,9 @@ powershell.exe -File .\scripts\test-packages\01_New-SsisTestProject.ps1 -TestDbS
 
 # 3. Assess the deployed packages and compare with the expected routes
 .\scripts\test-packages\03_Test-AssessmentRouting.ps1 -Mode Server -ServerInstance <DevServer> -TrustServerCertificate
+
+# 3b. Optional: check the SQL Agent reading (creates two disabled jobs, deletes them again)
+.\scripts\test-packages\04_Test-AgentJobs.ps1 -ServerInstance <DevServer> -ConfirmDevelopment -TrustServerCertificate
 
 # 4. Clean up when finished
 .\scripts\test-packages\02_Deploy-SsisTestProject.ps1 -ServerInstance <DevServer> -ConfirmDevelopment -Remove -RemoveTestDatabase
@@ -139,7 +143,8 @@ Columns:
   platform. All the explanations are in [docs/05_decision-driver-text.md](docs/05_decision-driver-text.md).
   Engineer-level detail is in `evidence_items.csv` (`Note`, plus the same plain text in `Explanation`).
 * **Context:** `AzureSsisIrFit`, `Removed2025`, `Usage` (for example, "not run in the last 90 days, confirm
-  it is still needed"), `LastExecutionStart`, `AvgDurationMin`, `AgentJobs`.
+  it is still needed"), `LastExecutionStart`, `AvgDurationMin`, `AgentJobs`, and `AgentSchedules` (when those
+  jobs run, in words, for example `Weekly on Mon,Tue,Wed,Thu,Fri every 15 minutes from 06:00 to 18:00`).
 * **For the team to fill in:** `BusinessOwner`, `Developer`, `Sprint`, `Status`, `Decision`, `Notes`.
 * **Provenance:** `SourceServerName` is the name the source SQL Server reports (`@@SERVERNAME`), read at run
   time, whatever alias or address the run connected with (that name stays in `package_assessment.csv` as
@@ -182,7 +187,7 @@ does not carry the planning columns forward.
 
 | Component | State |
 | --- | --- |
-| `01_Invoke-SsisModernizationAssessment.ps1` | v2.5.1. Offline fixtures pass (198/198 checks). Server mode verified against a local SQL Server 2025 SSISDB (152 passed, 1 skipped: T15 cannot be built on 2025); the workbook opens in desktop Excel. msdb packages and Agent SSIS job steps (job names, 32-bit `/X86` detection) verified against a live server on 2026-10-26; job schedules are not read. How to run it: [scripts/assessment/README.md](scripts/assessment/README.md). |
+| `01_Invoke-SsisModernizationAssessment.ps1` | v2.6.0. Offline fixtures pass (198/198 checks). Server mode verified against a local SQL Server 2025 SSISDB (152 passed, 1 skipped: T15 cannot be built on 2025); the workbook opens in desktop Excel. msdb packages and Agent SSIS job steps (job names, schedules, 32-bit `/X86` detection) verified against a live server on 2026-10-26 with `04_Test-AgentJobs.ps1` (9/9). How to run it: [scripts/assessment/README.md](scripts/assessment/README.md). |
 | `03_Test-AssessmentRouting.ps1` | Runs. Fixtures mode verified, including a deliberate failing case. Planted faults in seven routing behaviours (Script Task and Excel Destination rules, password masking, disabled tasks, child roll-up, unreadable packages, build order) are each caught in fixtures mode, the mode CI runs. |
 | `01_New-SsisTestProject.ps1` | v1.2.2. AssessmentTests: 26 of 27 built and deployed on SQL Server 2025 (T15 needs the removed CDC/Oracle components), no warnings. ParityTests: 9 of 9 built and run. Property names are set defensively and logged as warnings if they differ. |
 | `02_Deploy-SsisTestProject.ps1` | v1.1.0. Deploy, `-WhatIf` and `-Remove` run against a SQL Server 2025 SSISDB in Windows PowerShell 5.1. A redeploy keeps existing environment values unless the parameter is passed; `-Remove` keeps an environment another project still references. Use `-WhatIf` first. |
