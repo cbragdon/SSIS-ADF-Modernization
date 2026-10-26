@@ -59,7 +59,7 @@ GO
 IF (SELECT compatibility_level FROM sys.databases WHERE database_id = DB_ID()) < 130
 BEGIN
     DECLARE @lvl int = (SELECT compatibility_level FROM sys.databases WHERE database_id = DB_ID());
-    RAISERROR(N'SsisAssessmentTest is at compatibility level %d; the parity harness needs 130 or higher (STRING_SPLIT, FOR JSON). Nothing was created. Raise the level (ALTER DATABASE SsisAssessmentTest SET COMPATIBILITY_LEVEL = 130) and run this script again.', 16, 1, @lvl);
+    RAISERROR(N'SsisAssessmentTest is at compatibility level %d; the parity harness needs 130 or higher (STRING_SPLIT, FOR JSON). Nothing was created. Raise the level (ALTER DATABASE SsisAssessmentTest SET COMPATIBILITY_LEVEL = 130) and run this script again. In SSMS, an "Invalid object name" message after this one comes from compiling the skipped batches and can be ignored.', 16, 1, @lvl);
     SET NOEXEC ON;
 END
 GO
