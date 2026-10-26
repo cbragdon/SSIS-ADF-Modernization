@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:refId="Package" DTS:ExecutableType="Microsoft.Package" DTS:ObjectName="ExcelExport">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager DTS:CreationName="OLEDB" DTS:DTSID="{21}" DTS:ObjectName="Dw">
+      <DTS:ObjectData><DTS:ConnectionManager DTS:ConnectionString="Data Source=DW;Provider=MSOLEDBSQL.1;User ID=etl;Password=hunter2;" /></DTS:ObjectData>
+    </DTS:ConnectionManager>
+    <DTS:ConnectionManager DTS:CreationName="EXCEL" DTS:DTSID="{22}" DTS:ObjectName="Report workbook">
+      <DTS:ObjectData><DTS:ConnectionManager DTS:ConnectionString="Provider=Microsoft.ACE.OLEDB.16.0;Data Source=report.xlsx;Extended Properties=&quot;Excel 12.0 XML;HDR=YES&quot;;" /></DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+  <DTS:Executables>
+    <DTS:Executable DTS:refId="Package\Export" DTS:ExecutableType="Microsoft.Pipeline" DTS:ObjectName="Export">
+      <DTS:ObjectData><pipeline version="1"><components>
+        <component refId="a" componentClassID="Microsoft.OLEDBSource" name="Read sales" />
+        <component refId="b" componentClassID="Microsoft.ExcelDestination" name="Write workbook" />
+      </components></pipeline></DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

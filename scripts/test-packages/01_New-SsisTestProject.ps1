@@ -137,7 +137,7 @@
     powershell.exe -File .\01_New-SsisTestProject.ps1 -Suite ParityTests -TestDbServer <DevSqlServer> -LandingPath '\\<FileServer>\ssis_landing'
 
 .NOTES
-    Version : 1.2.1
+    Version : 1.2.2
     Part of : SSIS-ADF-Modernization repository (scripts\test-packages)
     Status  : SQL Server 2025 (SSIS 17.0): AssessmentTests builds 26 of 27 packages with no warnings (T15
               skipped, CDC/Oracle components removed in 2025). ParityTests (v1.2.0) builds all nine packages,
@@ -1639,7 +1639,7 @@ namespace SsisTestKit
         private void P25()
         {
             Package p = NewParityPackage("P25_Dedupe",
-                "G25: Sort on CustomerKey with remove duplicates. The source is ordered CustomerKey, UpdatedAt DESC, RowId so the surviving row is the latest UpdatedAt, then the lowest RowId.");
+                "G25: Sort on CustomerKey with remove duplicates. The source is ordered CustomerKey, UpdatedAt DESC, RowId; SSIS 2025 keeps the LAST row of each key in that order (the oldest UpdatedAt, then the highest RowId). Microsoft documents the survivor as arbitrary.");
             MainPipe mp = AddDataFlow(p, "Dedupe customers");
             IDTSComponentMetaData100 src = SqlSource(mp, "Read pty G25_Input",
                 "SELECT RowId, CustomerKey, Email, UpdatedAt FROM pty.G25_Input ORDER BY CustomerKey, UpdatedAt DESC, RowId;");

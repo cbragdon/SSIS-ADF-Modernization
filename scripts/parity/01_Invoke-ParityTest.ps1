@@ -64,11 +64,16 @@
     recorded by another process).
 
 .PARAMETER LandingPath
-    Replaces <LandingPath> in the SsisPath / CandidatePath columns of Files cases.
+    Replaces <LandingPath> in the SsisPath / CandidatePath columns of Files cases. Default <repo>\build\landing,
+    the same default the ParityTests build uses for its LandingPath project parameter.
 
 .PARAMETER ExecuteSsis / SsisServerInstance / SsisEnvironment
     Run each case's SSIS package synchronously through SSISDB before comparing. SsisEnvironment names
     an environment reference of the project (optional).
+
+    ResetSql runs only for the side(s) about to be executed: with -ExecuteSsis alone, @Side = 'both' in the
+    ResetSql column is narrowed to 'ssis' (and to 'adf' with -ExecuteAdf alone), so the other side's output,
+    produced by its own scheduler, is kept for the comparison.
 
 .PARAMETER ExecuteAdf / SubscriptionId / ResourceGroupName / DataFactoryName / AdfTimeoutMinutes
     Run each case's pipeline (AdfPipeline column, AdfParameters JSON) and wait for it to finish.
@@ -86,7 +91,7 @@
         -SubscriptionId <SubscriptionId> -ResourceGroupName <ResourceGroup> -DataFactoryName <DataFactory>
 
 .NOTES
-    Version : 1.0.0
+    Version : 1.1.0
     Part of : SSIS-ADF-Modernization repository (scripts\parity)
     Status  : Comparison path verified by 02_Test-ParityHarness.ps1 against SQL Server 2017-2025.
               -ExecuteSsis run against SQL Server 2025 CU9 (Windows) with the ParityTests packages P22-P30.
@@ -123,6 +128,7 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 if (-not $CasesPath)  { $CasesPath  = Join-Path $RepoRoot 'tests\parity\parity_cases.csv' }
 if (-not $OutputRoot) { $OutputRoot = Join-Path ([IO.Path]::GetTempPath()) 'SSIS_ADF_Parity' }
+if (-not $PSBoundParameters.ContainsKey('LandingPath')) { $LandingPath = Join-Path $RepoRoot 'build\landing' }
 if (-not $SsisServerInstance) { $SsisServerInstance = $ServerInstance }
 New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
 
@@ -285,6 +291,9 @@ try {
 
     $conn = New-SqlConnectionObject -Server $ServerInstance -DatabaseName $Database
     $conn.Open()
+    # The compare procedures use STRING_SPLIT and FOR JSON: stop with a clear message below level 130.
+    $compat = [int](Invoke-Sql -Connection $conn -Query 'SELECT compatibility_level AS c FROM sys.databases WHERE database_id = DB_ID();').Rows[0].c
+    if ($compat -lt 130) { throw "Database $Database is at compatibility level $compat; the parity harness needs 130 or higher (STRING_SPLIT, FOR JSON). Raise the level or use another database." }
 
     # 1. Case catalogue -> parity.TestCase
     $merge = @'
@@ -324,7 +333,12 @@ SELECT @@ROWCOUNT AS n;
             # Reset and execute (once per package / pipeline per run)
             $needSsis = $ExecuteSsis -and (Get-Field $c 'SsisPackage') -and -not $ranSsis.ContainsKey($c.SsisPackage)
             $needAdf  = $ExecuteAdf  -and (Get-Field $c 'AdfPipeline') -and -not $ranAdf.ContainsKey($c.AdfPipeline)
-            if (($needSsis -or $needAdf) -and (Get-Field $c 'ResetSql')) { [void](Invoke-Sql -Connection $conn -Query $c.ResetSql) }
+            if (($needSsis -or $needAdf) -and (Get-Field $c 'ResetSql')) {
+                # Reset only the side that is about to run, so the other side's existing output is compared, not wiped.
+                $reset = $c.ResetSql
+                if ($needSsis -xor $needAdf) { $reset = [regex]::Replace($reset, "(?i)(@Side\s*=\s*)'both'", ('$1''{0}''' -f $(if ($needSsis) { 'ssis' } else { 'adf' }))) }
+                [void](Invoke-Sql -Connection $conn -Query $reset)
+            }
             if ($needSsis) { Write-Log -Message "  SSIS: $($c.SsisFolder)\$($c.SsisProject)\$($c.SsisPackage)"; $ranSsis[$c.SsisPackage] = Invoke-SsisPackage -Case $c; Write-Log -Message "  SSIS outcome: $($ranSsis[$c.SsisPackage].Outcome)" }
             if ($needAdf)  { Write-Log -Message "  ADF : $($c.AdfPipeline)"; $ranAdf[$c.AdfPipeline] = Invoke-AdfPipeline -Case $c; Write-Log -Message "  ADF outcome: $($ranAdf[$c.AdfPipeline].Outcome)" }
 

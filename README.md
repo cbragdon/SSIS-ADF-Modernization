@@ -54,7 +54,7 @@ SSIS-ADF-Modernization/
 │  ├─ 02_Create-ParityHarness.sql          parity schema: cases, runs, results, compare procedures
 │  └─ 03_Seed-ParityScenarios.sql          inputs and output tables for parity scenarios G22-G30
 ├─ adf/                            ADF rewrites of the parity scenarios: linked services, datasets, pipelines
-├─ test-packages/AssessmentTests/    generated .dtsx files (committed for review; regenerate, don't hand-edit)
+├─ test-packages/AssessmentTests/    the builder writes the .dtsx files here (git-ignored build output; regenerate, don't hand-edit)
 ├─ tests/
 │  ├─ fixtures/                      hand-written XML for cases a modern SSIS install cannot build
 │  ├─ expected/                      expected routes - the single source of truth for the tests
@@ -182,11 +182,11 @@ does not carry the planning columns forward.
 
 | Component | State |
 | --- | --- |
-| `01_Invoke-SsisModernizationAssessment.ps1` | v2.5.0. Offline fixtures pass (182/182 checks). Server mode verified against a local SQL Server 2025 SSISDB (152 passed, 1 skipped: T15 cannot be built on 2025); the workbook opens in desktop Excel. msdb and Agent queries not yet run against a live server. How to run it: [scripts/assessment/README.md](scripts/assessment/README.md). |
-| `03_Test-AssessmentRouting.ps1` | Runs. Fixtures mode verified, including a deliberate failing case. |
-| `01_New-SsisTestProject.ps1` | v1.1.0. T01–T15 built and deployed on SQL Server 2025 (14 of 15; T15 needs the removed CDC/Oracle components). **T16–T27 are syntax-checked only, not yet compiled or run on SSIS.** Property names are set defensively and logged as warnings if they differ. |
-| `02_Deploy-SsisTestProject.ps1` | Guardrail verified. **Not yet run against SSISDB.** Use `-WhatIf` first. |
-| Parity harness (`sql/02_`, `sql/03_`, `scripts/parity/`) | v1.0.0. Comparison verified by the self-test (18 known-answer cases) on SQL Server 2017, 2019, 2022 and 2025; CI runs it against all four. The G22–G30 SSIS packages (`ParityTests`) are built and ran through `-ExecuteSsis` on SQL Server 2025; the ADF pipelines in `adf/` are authored but `-ExecuteAdf` has not been run. See [docs/04_parity-harness.md](docs/04_parity-harness.md). |
+| `01_Invoke-SsisModernizationAssessment.ps1` | v2.5.1. Offline fixtures pass (198/198 checks). Server mode verified against a local SQL Server 2025 SSISDB (152 passed, 1 skipped: T15 cannot be built on 2025); the workbook opens in desktop Excel. msdb packages and Agent SSIS job steps (job names, 32-bit `/X86` detection) verified against a live server on 2026-10-26; job schedules are not read. How to run it: [scripts/assessment/README.md](scripts/assessment/README.md). |
+| `03_Test-AssessmentRouting.ps1` | Runs. Fixtures mode verified, including a deliberate failing case. Planted faults in seven routing behaviours (Script Task and Excel Destination rules, password masking, disabled tasks, child roll-up, unreadable packages, build order) are each caught in fixtures mode, the mode CI runs. |
+| `01_New-SsisTestProject.ps1` | v1.2.2. AssessmentTests: 26 of 27 built and deployed on SQL Server 2025 (T15 needs the removed CDC/Oracle components), no warnings. ParityTests: 9 of 9 built and run. Property names are set defensively and logged as warnings if they differ. |
+| `02_Deploy-SsisTestProject.ps1` | v1.1.0. Deploy, `-WhatIf` and `-Remove` run against a SQL Server 2025 SSISDB in Windows PowerShell 5.1. A redeploy keeps existing environment values unless the parameter is passed; `-Remove` keeps an environment another project still references. Use `-WhatIf` first. |
+| Parity harness (`sql/02_`, `sql/03_`, `scripts/parity/`) | Runner v1.1.0. Comparison verified by the self-test (18 known-answer cases) on SQL Server 2017, 2019, 2022 and 2025; CI runs it against all four. Needs the test database at compatibility level 130 or higher; `sql/02_` and the runner stop with a clear message below that (self-test: 18/18 at 130–170 with the legacy cardinality estimator off and on). The G22–G30 SSIS packages (`ParityTests`) are built and ran through `-ExecuteSsis` on SQL Server 2025; the ADF pipelines in `adf/` are authored but `-ExecuteAdf` has not been run. See [docs/04_parity-harness.md](docs/04_parity-harness.md). |
 | Rule patterns not yet verified | Microsoft Connector for Oracle CreationName (`MSORA`/`ORACLE`), maintenance-task type names, SDS deprecation match. |
 | `-ExportRewriteSpec` | Planned — next building block (see plan review). |
 

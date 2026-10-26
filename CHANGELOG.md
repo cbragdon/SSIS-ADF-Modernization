@@ -4,6 +4,27 @@ All notable changes to this repository. Dates are local (America/New_York).
 
 ## [Unreleased] — 2026-10-20
 
+### Fixed (2026-10-26) — defects found by a full verification run
+- `02_Deploy-SsisTestProject.ps1` v1.1.0: `-WhatIf` failed in Windows PowerShell 5.1 ("The property 'Hash' cannot
+  be found": `Get-FileHash` returns nothing under `-WhatIf` there, and the transcript was never started). The
+  `.ispac` hash is now computed from its bytes, and the local log folder and transcript are written under
+  `-WhatIf` too. A redeploy no longer overwrites existing environment values with the parameter defaults
+  (`\\fileserver\...` placeholders): an existing value changes only when its parameter is passed. `-Remove`
+  no longer deletes the shared Dev/Test environments while another project in the folder references them.
+- `01_Invoke-ParityTest.ps1` v1.1.0: a run with only `-ExecuteSsis` (or only `-ExecuteAdf`) reset both sides,
+  wiping the other side's output before comparing; `@Side = 'both'` in `ResetSql` is now narrowed to the side
+  that runs. `-LandingPath` defaults to `<repo>\build\landing`, as the ParityTests build does (G29 reported
+  ERROR without it). The runner stops with a clear message when the database is below compatibility 130.
+- `sql/02_Create-ParityHarness.sql`: stops before creating anything below compatibility level 130 (it used to
+  install, then every comparison failed with "Invalid object name 'STRING_SPLIT'").
+- Routing tests: new fixtures `Loose/ScriptTaskOnly.dtsx` and `Loose/ExcelExport.dtsx`. Before them, CI (fixtures
+  mode) still passed with the Script Task or the Excel Destination rule changed to an ADF route; 198 checks now.
+- Assessment v2.5.1: the log says how many msdb packages were left out on purpose (Data Collector, maintenance
+  plans); the help text no longer promises job schedules, which are not read.
+- Builder v1.2.2: P25's description states the observed survivor rule (the last row in source order).
+- Docs: runbook check count, README status (T16–T27 build; deploy and `-WhatIf` run), and `.gitignore` for
+  generated `.dtsx` files and assessment workbooks, which hold real server names.
+
 ### Added (2026-10-21) — assessment how-to
 - `scripts/assessment/README.md`: how to run the assessment in plain language, with a one-server and a
   four-server example, every parameter, the workbook naming and tabs, the run folder and the console output.

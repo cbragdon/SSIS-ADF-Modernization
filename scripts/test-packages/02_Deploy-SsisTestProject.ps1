@@ -70,6 +70,11 @@
 .PARAMETER DevLandingPath / TestLandingPath
     Per-environment LandingPath values (the only variable that differs between Dev and Test by default).
 
+    Environment variables that already exist keep their value unless the matching parameter (-TestDbServer,
+    -TestDbName, -TestDbProvider, -SqlLoginUser, -DevLandingPath, -TestLandingPath) is passed explicitly.
+    The environments are shared by every project in the folder, so a redeploy with the defaults must not
+    overwrite values another deploy set. The defaults apply when a variable is created.
+
 .PARAMETER SqlLoginPassword
     Optional SecureString for the sensitive SqlLoginPassword variable used by SQL-authentication packages.
 
@@ -98,7 +103,7 @@
     .\02_Deploy-SsisTestProject.ps1 -ServerInstance <DevSqlServer> -ConfirmDevelopment -Remove -RemoveTestDatabase
 
 .NOTES
-    Version : 1.0.0
+    Version : 1.1.0
     Part of : SSIS-ADF-Modernization repository (scripts\test-packages)
     Compat  : Windows PowerShell 5.1 and PowerShell 7.x (uses .NET SqlClient only).
     Status  : Executed against a SQL Server 2025 SSISDB (deploy, environments, bindings). Run with -WhatIf first.
@@ -135,8 +140,9 @@ if (-not $IspacPath)    { $IspacPath = Join-Path $RepoRoot ("build\$ProjectName.
 if (-not $TestDbServer) { $TestDbServer = $ServerInstance }
 $RunId     = 'SSISDEPLOY_{0}_{1}' -f (Get-Date -Format 'yyyyMMdd_HHmmss'), $env:COMPUTERNAME
 $RunFolder = Join-Path $LogRoot $RunId
-New-Item -ItemType Directory -Path $RunFolder -Force | Out-Null
-Start-Transcript -Path (Join-Path $RunFolder 'transcript.log') -Force | Out-Null
+# The run folder and transcript are local logs, written under -WhatIf too (that is when the log is most useful).
+New-Item -ItemType Directory -Path $RunFolder -Force -WhatIf:$false | Out-Null
+Start-Transcript -Path (Join-Path $RunFolder 'transcript.log') -Force -WhatIf:$false | Out-Null
 $Environments = @('Dev', 'Test')
 
 function Write-Log {
@@ -237,6 +243,16 @@ WHERE f.name = @f AND p.name = @p;
             }
             foreach ($e in $Environments) {
                 $envExists = Invoke-Sql -Scalar -Parameters @{ '@id' = [long]$folderId; '@e' = $e } -Query 'SELECT COUNT(*) FROM catalog.environments WHERE folder_id = @id AND name = @e;'
+                # The environments are shared: keep one that another project still references.
+                $users = @(Invoke-Sql -Parameters @{ '@id' = [long]$folderId; '@f' = $FolderName; '@e' = $e; '@p' = $ProjectName } -Query @"
+SELECT DISTINCT p.name FROM catalog.environment_references r JOIN catalog.projects p ON p.project_id = r.project_id
+WHERE r.environment_name = @e AND p.name <> @p
+  AND ((r.reference_type = 'R' AND p.folder_id = @id) OR (r.reference_type = 'A' AND r.environment_folder_name = @f));
+"@)
+                if ($envExists -and $users.Count -gt 0) {
+                    Write-Log -Level WARN -Message ("Environment {0} kept: still referenced by {1}." -f $e, (($users | ForEach-Object { $_.name }) -join ', '))
+                    continue
+                }
                 if ($envExists -and $PSCmdlet.ShouldProcess("$FolderName\$e", 'delete environment')) {
                     Invoke-Sql -NonQuery -Parameters @{ '@f' = $FolderName; '@e' = $e } -Query 'EXEC catalog.delete_environment @folder_name = @f, @environment_name = @e;'
                     Write-Log -Level OK -Message "Deleted environment $e"
@@ -304,7 +320,9 @@ SELECT (SELECT COUNT(*) FROM catalog.projects WHERE folder_id = @id) + (SELECT C
 
 #region ---------------- 5. Project ----------------
     $bytes = [IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $IspacPath).Path)
-    $hash  = (Get-FileHash -LiteralPath $IspacPath -Algorithm SHA256).Hash
+    # Hash the bytes directly: in Windows PowerShell 5.1 Get-FileHash returns nothing under -WhatIf.
+    $sha   = [Security.Cryptography.SHA256]::Create()
+    try { $hash = -join ($sha.ComputeHash($bytes) | ForEach-Object { $_.ToString('X2') }) } finally { $sha.Dispose() }
     Write-Log -Message ("Project file {0} ({1:N0} bytes, SHA256 {2})" -f $IspacPath, $bytes.Length, $hash.Substring(0, 16))
     if ($PSCmdlet.ShouldProcess("$FolderName\$ProjectName", 'deploy project (creates a new project version)')) {
         Invoke-Sql -NonQuery -Parameters @{ '@f' = $FolderName; '@p' = $ProjectName; '@s' = $bytes } -Query @"
@@ -328,6 +346,15 @@ WHERE f.name = @f AND p.name = @p;
         SqlLoginUser   = $SqlLoginUser
     }
     $perEnv = @{ Dev = @{ LandingPath = $DevLandingPath }; Test = @{ LandingPath = $TestLandingPath } }
+    # Which variable values were asked for explicitly; only those overwrite an existing value.
+    $explicit = @{
+        TestDbServer   = $PSBoundParameters.ContainsKey('TestDbServer')
+        TestDbName     = $PSBoundParameters.ContainsKey('TestDbName')
+        TestDbProvider = $PSBoundParameters.ContainsKey('TestDbProvider')
+        SqlLoginUser   = $PSBoundParameters.ContainsKey('SqlLoginUser')
+        'Dev.LandingPath'  = $PSBoundParameters.ContainsKey('DevLandingPath')
+        'Test.LandingPath' = $PSBoundParameters.ContainsKey('TestLandingPath')
+    }
 
     foreach ($e in $Environments) {
         $exists = Invoke-Sql -Scalar -Parameters @{ '@f' = $FolderName; '@e' = $e } -Query @"
@@ -360,6 +387,9 @@ EXEC catalog.create_environment_variable @folder_name = @f, @environment_name = 
 "@
                     Write-Log -Level OK -Message "  $e.$name = $val (created)"
                 }
+            }
+            elseif ([string]$current[$name].value -ne $val -and -not ($explicit[$name] -or $explicit["$e.$name"])) {
+                Write-Log -Level WARN -Message ("  {0}.{1} kept as '{2}' (the default would be '{3}'; pass the parameter explicitly to change it)" -f $e, $name, $current[$name].value, $val)
             }
             elseif ([string]$current[$name].value -ne $val) {
                 if ($PSCmdlet.ShouldProcess("$e.$name", "update value to '$val'")) {
@@ -461,5 +491,5 @@ catch {
     throw
 }
 finally {
-    Stop-Transcript | Out-Null
+    try { Stop-Transcript | Out-Null } catch { }
 }

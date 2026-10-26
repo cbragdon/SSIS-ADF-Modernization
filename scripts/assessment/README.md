@@ -121,7 +121,7 @@ Heads-up: the workbooks and CSVs contain real server names, so keep them out of 
 | `-Environment` | A label stamped on every row, such as Production or Development. | `Unspecified` |
 | `-TargetSsisVersion` | The SQL Server version the SSIS VM will run: 2016, 2017, 2019, 2022 or 2025. On 2025, components Microsoft removed become blockers. On older versions they're flagged as future risk. | `2025` |
 | `-IncludeMsdbPackages` | Also look at old-style packages stored in msdb. | off |
-| `-IncludeAgentJobs` | Read SQL Agent job steps to show schedules and spot 32-bit runs. | off |
+| `-IncludeAgentJobs` | Read SQL Agent job steps to show which jobs run each package (`AgentJobs`) and spot 32-bit runs. Job schedules are not read. | off |
 | `-HistoryDays` | How far back to look at run history. Also sets when `isMigrating` says `Review`. | `90` |
 | `-TrustServerCertificate` | Accept a self-signed certificate. You'll want this on most VMs and dev boxes. | off |
 | `-SqlCredential` | Use a SQL login instead of your Windows login. Pass `(Get-Credential)`. | Windows login |
