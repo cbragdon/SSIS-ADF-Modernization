@@ -4,6 +4,18 @@ All notable changes to this repository. Dates are local (America/New_York).
 
 ## [Unreleased] — 2026-10-20
 
+### Added (2026-10-26) — Agent schedules; SSMS gate message
+- Assessment v2.6.0: `-IncludeAgentJobs` now reads the schedules of the jobs that run each package and reports them
+  in words in a new `AgentSchedules` column (package_assessment.csv, sprint_backlog.csv, the workbook, with a Legend
+  entry) and per step in `agent_job_steps.csv` (`JobSchedules`): daily, weekly days, monthly day or relative day,
+  sub-day intervals, Agent start, idle, disabled jobs and schedules, and jobs with no schedule. Built in PowerShell,
+  so SQL Server 2016 sources work. The help text had promised schedules that were never read.
+- New `scripts/test-packages/04_Test-AgentJobs.ps1`: creates two disabled jobs (three SSIS steps incl. `/X86` and an
+  msdb package, four schedules; one job with no schedule), runs the assessment, checks the Agent columns, deletes
+  the jobs and confirms msdb is unchanged. Requires `-ConfirmDevelopment`.
+- `sql/02_Create-ParityHarness.sql`: `parity.vw_LatestResult` is created through `EXEC`, so a batch skipped by the
+  compatibility gate's `SET NOEXEC ON` no longer adds a misleading "Invalid object name" error in SSMS.
+
 ### Fixed (2026-10-26) — defects found by a full verification run
 - `02_Deploy-SsisTestProject.ps1` v1.1.0: `-WhatIf` failed in Windows PowerShell 5.1 ("The property 'Hash' cannot
   be found": `Get-FileHash` returns nothing under `-WhatIf` there, and the transcript was never started). The

@@ -59,7 +59,7 @@ GO
 IF (SELECT compatibility_level FROM sys.databases WHERE database_id = DB_ID()) < 130
 BEGIN
     DECLARE @lvl int = (SELECT compatibility_level FROM sys.databases WHERE database_id = DB_ID());
-    RAISERROR(N'SsisAssessmentTest is at compatibility level %d; the parity harness needs 130 or higher (STRING_SPLIT, FOR JSON). Nothing was created. Raise the level (ALTER DATABASE SsisAssessmentTest SET COMPATIBILITY_LEVEL = 130) and run this script again. In SSMS, an "Invalid object name" message after this one comes from compiling the skipped batches and can be ignored.', 16, 1, @lvl);
+    RAISERROR(N'SsisAssessmentTest is at compatibility level %d; the parity harness needs 130 or higher (STRING_SPLIT, FOR JSON). Nothing was created. Raise the level (ALTER DATABASE SsisAssessmentTest SET COMPATIBILITY_LEVEL = 130) and run this script again.', 16, 1, @lvl);
     SET NOEXEC ON;
 END
 GO
@@ -474,13 +474,15 @@ BEGIN
 END;
 GO
 
-CREATE OR ALTER VIEW parity.vw_LatestResult
+-- Created through EXEC so that a batch skipped by the compatibility gate's SET NOEXEC ON compiles nothing that binds:
+-- a view binds its tables at compile time, and would otherwise add "Invalid object name 'parity.Result'".
+EXEC (N'CREATE OR ALTER VIEW parity.vw_LatestResult
 AS
 SELECT r.CaseId, tc.GapId, tc.Title, r.CompareType, r.Status, r.RunId, r.ComparedAt, r.SsisRows, r.CandidateRows,
        r.OnlyInSsis, r.OnlyInCandidate, r.ExceptOnlyInSsis, r.ExceptOnlyInCandidate, r.SchemaDiff, r.Detail
   FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY CaseId ORDER BY ResultId DESC) AS rn FROM parity.Result) AS r
   LEFT JOIN parity.TestCase AS tc ON tc.CaseId = r.CaseId
- WHERE r.rn = 1;
+ WHERE r.rn = 1;');
 GO
 
 PRINT 'Parity harness ready (schema parity).';
