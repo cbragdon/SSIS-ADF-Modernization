@@ -36,7 +36,8 @@
        than the children it runs (EffectiveRoute). A child that cannot be resolved (external file/msdb
        reference) makes the parent's EffectiveRoute ReviewRequired: an unknown child is never assumed easy.
     6. Enriches with run history from catalog.executions (run count, failures, last run, average duration)
-       and optionally SQL Agent job steps (schedules, 32-bit /X86 execution - deprecated in SQL Server 2025).
+       and optionally SQL Agent job steps (which jobs run each package, 32-bit /X86 execution - deprecated in
+       SQL Server 2025). Job schedules are not read.
     7. Writes timestamped CSVs plus a transcript log. Nothing is overwritten between runs.
     8. Writes a sprint backlog for developers and business units: sprint_backlog.csv (all servers) in the run
        folder, plus one workbook per source server, <ServerName>_SSIS_Migration_Assessment_<yyyyMMdd_HHmmss>.xlsx,
@@ -113,7 +114,8 @@
     depending on the legacy Integration Services Service, which is deprecated in SQL Server 2025.
 
 .PARAMETER IncludeAgentJobs
-    Read SQL Agent SSIS job steps to report schedules per package and detect 32-bit (/X86) execution.
+    Read SQL Agent SSIS job steps to report which jobs run each package (AgentJobs) and detect 32-bit (/X86)
+    execution (Uses32BitJobStep). Job schedules are not read.
 
 .PARAMETER HistoryDays
     Days of catalog.executions history to summarise (default 90). Bounded by SSISDB retention settings.
@@ -165,7 +167,7 @@
     .\01_Invoke-SsisModernizationAssessment.ps1 -PackageFolder 'C:\Repos\ETL\SSIS' -TargetSsisVersion 2022
 
 .NOTES
-    Version : 2.5.0
+    Version : 2.5.1
     Purpose : Replaces 01_run_dma_assessment.ps1 (which queried non-existent catalog columns and could not
               determine task types). This script does not use Data Migration Assistant.
     Compat  : Windows PowerShell 5.1 and PowerShell 7.x. No SqlServer module dependency (uses .NET SqlClient).
@@ -1293,7 +1295,10 @@ LEFT JOIN folders AS f ON f.folderid = p.folderid
 WHERE  ISNULL(f.FolderPath, N'') NOT LIKE N'\Data Collector%'   -- exclude SQL Server's own Data Collector packages
   AND  ISNULL(f.FolderPath, N'') NOT LIKE N'\Maintenance Plans%'; -- maintenance plans are DBA jobs, not ETL
 "@)
-            Write-Log -Message ("  msdb packages: {0}" -f $msdbPkgs.Count)
+            # Say how many msdb packages were left out on purpose, so a short count is never a mystery.
+            $msdbTotal = [int](@(Invoke-ReadQuery -Server $Server -Database 'msdb' -Query 'SELECT COUNT(*) AS n FROM dbo.sysssispackages;')[0].n)
+            $msdbSkipped = $msdbTotal - $msdbPkgs.Count
+            Write-Log -Message ("  msdb packages: {0}{1}" -f $msdbPkgs.Count, $(if ($msdbSkipped -gt 0) { " ($msdbSkipped not assessed: SQL Server's own Data Collector packages and maintenance plans)" } else { '' }))
             foreach ($m in $msdbPkgs) {
                 $ctx = @{ Environment = $Env; Server = $Server; SourceType = 'MSDB'; Folder = $m.FolderPath; Project = '(package deployment)'; TargetVersion = $Target }
                 try {

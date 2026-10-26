@@ -62,6 +62,8 @@ T16–T27 were added in builder v1.1.0 and have not yet been built on SSIS. Afte
 | `ProjA/Child.dtsx` | Attunity CDC Source (managed component host) | Remediate2025 | KeepOnSsisVm (future risk) |
 | `IspacDrop/ProjB.ispac` | Same packages inside an `.ispac`, percent-encoded part name `Parent%20Pkg.dtsx` | as above | — |
 | `Loose/SimpleCopy.dtsx` | SQL-auth copy; planted password must be masked | AdfNative-Low | — |
+| `Loose/ScriptTaskOnly.dtsx` | One enabled Script Task and nothing else that needs SSIS: the Script Task rule alone decides | KeepOnSsisVm | — |
+| `Loose/ExcelExport.dtsx` | Excel Destination (the Excel connection alone would be AdfNative-Medium) | KeepOnSsisVm | — |
 | `Loose/ThirdParty.dtsx` | Unrecognised third-party task; Foreach File Enumerator | KeepOnSsisVm | — |
 | `Loose/Encrypted.dtsx` | `EncryptAllWithPassword` body | ReviewRequired | — |
 | `Loose/Legacy2008.dtsx` | PackageFormatVersion 3 | ReviewRequired | — |

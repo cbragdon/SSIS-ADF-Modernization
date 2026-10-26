@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:refId="Package" DTS:ExecutableType="Microsoft.Package" DTS:ObjectName="ScriptTaskOnly">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager DTS:CreationName="OLEDB" DTS:DTSID="{11}" DTS:ObjectName="Dw">
+      <DTS:ObjectData><DTS:ConnectionManager DTS:ConnectionString="Data Source=DW;Provider=MSOLEDBSQL.1;User ID=etl;Password=hunter2;" /></DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+  <DTS:Executables>
+    <DTS:Executable DTS:refId="Package\Load audit row" DTS:ExecutableType="Microsoft.ExecuteSQLTask" DTS:ObjectName="Load audit row" />
+    <DTS:Executable DTS:refId="Package\Compute batch id" DTS:ExecutableType="Microsoft.ScriptTask" DTS:ObjectName="Compute batch id" />
+  </DTS:Executables>
+</DTS:Executable>
