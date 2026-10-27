@@ -200,6 +200,10 @@ does not carry the planning columns forward.
 * ETL platform decision request (Claude Docs artifact) — summarised in [docs/01_decision-summary.md](docs/01_decision-summary.md).
 * Plan review workbook — [docs/plan-review/SSIS_ADF_Plan_Review.xlsx](docs/plan-review/SSIS_ADF_Plan_Review.xlsx).
 
+## Security
+
+To report a security problem, see [SECURITY.md](SECURITY.md). Please don't put it in an issue.
+
 ## Contributing
 
 Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for what to include in a report, the tests a change must pass, and the rules every change keeps.
