@@ -12,5 +12,6 @@
 *.ispac  binary
 *.xlsx   binary
 *.pdf    binary
+ssisassessment-review-for-transfer-ac.zip export-ignore
 # Parity input files: exact bytes matter (encoding, BOM, line endings, final newline).
 tests/parity/data/** binary
