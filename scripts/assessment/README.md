@@ -89,9 +89,15 @@ The columns that matter most for planning:
 That's where the detail lives for engineers:
 
 * `package_assessment.csv`: one row per package with every rule that fired.
+* `package_assessment.json`: the versioned, machine-readable package contract for downstream automation. Each
+  record has `SchemaVersion`, a stable `PackageKey`
+  (`SourceServerName|PackageLocation|Folder|Project|Package`), and the same safe package-assessment fields
+  available in the CSV. It never includes connection strings or credentials.
 * `evidence_items.csv`: the exact task, component or connection behind each decision.
 * `connections.csv`: every connection manager, with passwords masked.
 * `sprint_backlog.csv`: the backlog rows for all servers in one file.
+* `route_summary.json`: the versioned JSON equivalent of `route_summary.csv`.
+* `assessment_manifest.json`: the schema version, run metadata, source/package/error counts, and artifact names.
 * `errors.csv`, `route_summary.csv`, and `transcript.log`, the full log of the run.
 
 **The console** tells you what it's doing as it goes:

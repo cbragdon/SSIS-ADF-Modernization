@@ -172,12 +172,42 @@ else {
 
 foreach ($ver in $runs.Keys) {
     $run = $runs[$ver]
-    $actual = @(Import-Csv (Join-Path $run 'package_assessment.csv'))
+    $allActual = @(Import-Csv (Join-Path $run 'package_assessment.csv'))
+    $actual = $allActual
     if ($Mode -eq 'Server') { $actual = @($actual | Where-Object { $_.Folder -eq $FolderName -and $_.Project -eq $ProjectName }) }
 
     # Assessment errors
     $errs = @(Import-Csv (Join-Path $run 'errors.csv'))
     $results.Add([PSCustomObject]@{ Target = $ver; Check = 'Assessment errors'; Package = '-'; Expected = '0'; Actual = "$($errs.Count)"; Status = $(if ($errs.Count -eq 0) { 'PASS' } else { 'FAIL' }) })
+
+    # Versioned JSON contract: downstream automation must not have to parse workbooks or console output.
+    $manifestPath = Join-Path $run 'assessment_manifest.json'
+    $packagesJsonPath = Join-Path $run 'package_assessment.json'
+    $summaryJsonPath = Join-Path $run 'route_summary.json'
+    $jsonReady = (Test-Path -LiteralPath $manifestPath) -and (Test-Path -LiteralPath $packagesJsonPath) -and (Test-Path -LiteralPath $summaryJsonPath)
+    $results.Add([PSCustomObject]@{ Target = $ver; Check = 'JSON artifacts'; Package = '-'; Expected = 'manifest, packages, summary'; Actual = $(if ($jsonReady) { 'present' } else { 'missing' }); Status = $(if ($jsonReady) { 'PASS' } else { 'FAIL' }) })
+    $manifest = $null; $packageJson = @(); $summaryJson = @()
+    if ($jsonReady) {
+        try {
+            $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+            $packageJson = Get-Content -LiteralPath $packagesJsonPath -Raw | ConvertFrom-Json
+            $summaryJson = Get-Content -LiteralPath $summaryJsonPath -Raw | ConvertFrom-Json
+        }
+        catch {
+            $jsonReady = $false
+        }
+    }
+    $manifestOk = $jsonReady -and $manifest.SchemaVersion -eq '1.0' -and $manifest.RunId -and
+                  [int]$manifest.Counts.Packages -eq $allActual.Count
+    $results.Add([PSCustomObject]@{ Target = $ver; Check = 'JSON manifest'; Package = '-'; Expected = 'schema 1.0 and package count'; Actual = $(if ($manifestOk) { 'valid' } else { 'invalid' }); Status = $(if ($manifestOk) { 'PASS' } else { 'FAIL' }) })
+    $packageJsonOk = $jsonReady -and $packageJson.Count -eq $allActual.Count -and
+                     @($packageJson | Select-Object -ExpandProperty PackageKey -Unique).Count -eq $packageJson.Count
+    $results.Add([PSCustomObject]@{ Target = $ver; Check = 'JSON packages'; Package = '-'; Expected = "$($allActual.Count) unique package keys"; Actual = $(if ($jsonReady) { "$($packageJson.Count) package records, $(@($packageJson | Select-Object -ExpandProperty PackageKey -Unique).Count) unique keys" } else { 'unavailable' }); Status = $(if ($packageJsonOk) { 'PASS' } else { 'FAIL' }) })
+    $summaryCsv = @(Import-Csv (Join-Path $run 'route_summary.csv'))
+    $summaryCsvKeys = @($summaryCsv | ForEach-Object { '{0}|{1}|{2}' -f $_.Environment, $_.EffectiveRoute, $_.Packages } | Sort-Object)
+    $summaryJsonKeys = @($summaryJson | ForEach-Object { '{0}|{1}|{2}' -f $_.Environment, $_.EffectiveRoute, $_.Packages } | Sort-Object)
+    $summaryJsonOk = $jsonReady -and (($summaryCsvKeys -join "`n") -eq ($summaryJsonKeys -join "`n"))
+    $results.Add([PSCustomObject]@{ Target = $ver; Check = 'JSON route summary'; Package = '-'; Expected = 'matches route_summary.csv'; Actual = $(if ($summaryJsonOk) { 'matches' } else { 'does not match' }); Status = $(if ($summaryJsonOk) { 'PASS' } else { 'FAIL' }) })
 
     # Secret masking: scan every output file, workbooks included
     foreach ($f in @(Get-ChildItem -LiteralPath $run -File) + @(Get-ChildItem -LiteralPath $wbFolders[$ver] -File -ErrorAction SilentlyContinue)) {

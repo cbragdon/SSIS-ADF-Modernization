@@ -1,0 +1,13 @@
+{
+  "workbookFolder": "D:\\SSIS_To_ADF\\AssessmentRuns",
+  "outputRoot": "D:\\SSIS_To_ADF\\AssessmentRuns\\Batches",
+  "targets": [
+    {
+      "name": "Development",
+      "serverInstance": "DEVSQL01",
+      "environment": "Development",
+      "targetSsisVersion": "2025",
+      "required": true
+    }
+  ]
+}

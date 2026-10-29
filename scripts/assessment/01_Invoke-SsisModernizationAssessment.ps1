@@ -38,7 +38,7 @@
     6. Enriches with run history from catalog.executions (run count, failures, last run, average duration)
        and optionally SQL Agent job steps (which jobs run each package and their schedules, 32-bit /X86
        execution - deprecated in SQL Server 2025).
-    7. Writes timestamped CSVs plus a transcript log. Nothing is overwritten between runs.
+    7. Writes timestamped CSVs, versioned JSON artifacts and a transcript log. Nothing is overwritten between runs.
     8. Writes a sprint backlog for developers and business units: sprint_backlog.csv (all servers) in the run
        folder, plus one workbook per source server, <ServerName>_SSIS_Migration_Assessment_<yyyyMMdd_HHmmss>.xlsx,
        in -WorkbookFolder:
@@ -136,11 +136,14 @@
 .OUTPUTS
     <OutputRoot>\<RunId>\
         package_assessment.csv  - one row per package: route, reasons, counts, run history, Azure-SSIS IR fit
+        package_assessment.json - versioned package records with stable package keys for downstream automation
         evidence_items.csv      - one row per task / component / connection / enumerator matched by a rule
         connections.csv         - every connection manager (package and project level) with risk flags
         agent_job_steps.csv     - SSIS Agent job steps (-IncludeAgentJobs)
         errors.csv              - every non-fatal failure (server, project, package, message)
         route_summary.csv       - package counts per environment and route
+        route_summary.json      - versioned route-summary records matching route_summary.csv
+        assessment_manifest.json - run metadata, artifact list and package/evidence/error counts
         sprint_backlog.csv      - one planning row per package: TargetPlatform, WorkType, ComplexityBand, BuildOrder,
                                   DecisionDrivers, usage, and blank BusinessOwner / Developer / Sprint / Status columns
         transcript.log          - full PowerShell transcript of the run, including each server's start and completion time
@@ -168,7 +171,7 @@
     .\01_Invoke-SsisModernizationAssessment.ps1 -PackageFolder 'C:\Repos\ETL\SSIS' -TargetSsisVersion 2022
 
 .NOTES
-    Version : 2.6.0
+    Version : 2.7.0
     Purpose : Replaces 01_run_dma_assessment.ps1 (which queried non-existent catalog columns and could not
               determine task types). This script does not use Data Migration Assistant.
     Compat  : Windows PowerShell 5.1 and PowerShell 7.x. No SqlServer module dependency (uses .NET SqlClient).
@@ -211,6 +214,8 @@ $RunStart  = Get-Date
 $RunStamp  = $RunStart.ToString('yyyyMMdd_HHmmss')
 $RunId     = 'SSISASSESS_{0}_{1}' -f $RunStamp, $env:COMPUTERNAME
 $RunFolder = Join-Path $OutputRoot $RunId
+$AssessmentScriptVersion = '2.7.0'
+$AssessmentSchemaVersion = '1.0'
 # Folders that do not exist yet are created and logged (after the transcript starts, so the log records it).
 $CreatedFolders = @(foreach ($dir in @($OutputRoot, $WorkbookFolder | Where-Object { $_ })) { if (-not (Test-Path -LiteralPath $dir)) { $dir } })
 New-Item -ItemType Directory -Path $RunFolder -Force | Out-Null
@@ -251,6 +256,13 @@ function Add-AssessmentError {
         Message = $Message; TimeStamp = (Get-Date).ToString('s')
     })
     Write-Log -Level ERROR -Message ('{0} | {1} | {2}: {3}' -f $Server, $Scope, $Object, $Message)
+}
+
+function Write-JsonFile {
+    <# Writes UTF-8 JSON without a BOM so the result is stable across Windows PowerShell and PowerShell 7. #>
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)]$InputObject)
+    $json = ConvertTo-Json -InputObject $InputObject -Depth 8
+    [IO.File]::WriteAllText($Path, $json, (New-Object System.Text.UTF8Encoding($false)))
 }
 
 Write-Log -Level STEP -Message "SSIS modernization assessment $RunId"
@@ -1861,7 +1873,8 @@ try {
     # ---- Output ----
     Write-Log -Level STEP -Message 'Writing output'
     $csv = @{ NoTypeInformation = $true; Encoding = 'UTF8' }
-    $Packages | Select-Object * -ExcludeProperty Key, Drivers | Sort-Object Environment, ServerInstance, Folder, Project, Package |
+    $packageRows = @($Packages | Select-Object * -ExcludeProperty Key, Drivers | Sort-Object Environment, ServerInstance, Folder, Project, Package)
+    $packageRows |
         Export-Csv -Path (Join-Path $RunFolder 'package_assessment.csv') @csv
     $Evidence    | Export-Csv -Path (Join-Path $RunFolder 'evidence_items.csv') @csv
     $Connections | Export-Csv -Path (Join-Path $RunFolder 'connections.csv') @csv
@@ -1874,6 +1887,61 @@ try {
     } | Sort-Object Environment, @{ Expression = { $RouteSeverity[$_.EffectiveRoute] }; Descending = $true }
     $summary | Export-Csv -Path (Join-Path $RunFolder 'route_summary.csv') @csv
     $workbooks = @(Export-SprintBacklog -Backlog @(New-SprintBacklog -Packages $Packages.ToArray()) -Folder $RunFolder -WorkbookFolder $WorkbookFolder -Stamp $RunStamp)
+    $packageJson = @($packageRows | ForEach-Object {
+        $sourceServerName = if ($SourceServerNames.ContainsKey([string]$_.ServerInstance)) {
+            $SourceServerNames[[string]$_.ServerInstance]
+        }
+        else {
+            $_.ServerInstance
+        }
+        $record = [ordered]@{
+            SchemaVersion = $AssessmentSchemaVersion
+            PackageKey = '{0}|{1}|{2}|{3}|{4}' -f $sourceServerName, $PackageLocationLabel[[string]$_.SourceType], $_.Folder, $_.Project, $_.Package
+            SourceServerName = $sourceServerName
+        }
+        foreach ($property in $_.PSObject.Properties) {
+            $record[$property.Name] = $property.Value
+        }
+        [PSCustomObject]$record
+    })
+    Write-JsonFile -Path (Join-Path $RunFolder 'package_assessment.json') -InputObject $packageJson
+    Write-JsonFile -Path (Join-Path $RunFolder 'route_summary.json') -InputObject @($summary)
+
+    $runEnd = Get-Date
+    $manifest = [ordered]@{
+        SchemaVersion = $AssessmentSchemaVersion
+        AssessmentScriptVersion = $AssessmentScriptVersion
+        RunId = $RunId
+        StartedAt = $RunStart.ToString('o')
+        CompletedAt = $runEnd.ToString('o')
+        Sources = @($packageJson | Group-Object SourceServerName | ForEach-Object {
+            [PSCustomObject]@{
+                SourceServerName = $_.Name
+                PackageLocations = @($_.Group | Select-Object -ExpandProperty SourceType | ForEach-Object { $PackageLocationLabel[[string]$_] } | Sort-Object -Unique)
+                Packages = $_.Count
+            }
+        } | Sort-Object SourceServerName)
+        Counts = [ordered]@{
+            Packages = $packageJson.Count
+            EvidenceItems = $Evidence.Count
+            Connections = $Connections.Count
+            Errors = $Errors.Count
+        }
+        Artifacts = [ordered]@{
+            AssessmentManifestJson = 'assessment_manifest.json'
+            PackageAssessmentCsv = 'package_assessment.csv'
+            PackageAssessmentJson = 'package_assessment.json'
+            EvidenceItemsCsv = 'evidence_items.csv'
+            ConnectionsCsv = 'connections.csv'
+            ErrorsCsv = 'errors.csv'
+            RouteSummaryCsv = 'route_summary.csv'
+            RouteSummaryJson = 'route_summary.json'
+            SprintBacklogCsv = 'sprint_backlog.csv'
+            TranscriptLog = 'transcript.log'
+            Workbooks = @($workbooks | ForEach-Object { Split-Path -Leaf $_ })
+        }
+    }
+    Write-JsonFile -Path (Join-Path $RunFolder 'assessment_manifest.json') -InputObject ([PSCustomObject]$manifest)
 
     Write-Log -Level OK -Message ("Packages assessed: {0} | Evidence items: {1} | Errors: {2}" -f $Packages.Count, $Evidence.Count, $Errors.Count)
     # -Width keeps the table readable in headless runs (SQL Agent, scheduled tasks) where console width is undefined.
@@ -1881,7 +1949,6 @@ try {
     if ($Errors.Count -gt 0) { Write-Log -Level WARN -Message "Some objects failed; see errors.csv. Results for those objects are missing, not 'easy'." }
     Write-Log -Level OK -Message "Results: $RunFolder"
     foreach ($wb in $workbooks) { Write-Log -Level OK -Message "Workbook: $wb" }
-    $runEnd = Get-Date
     Write-Log -Level OK -Message ('Assessment completed {0} (elapsed {1:hh\:mm\:ss})' -f $runEnd.ToString('yyyy-MM-dd HH:mm:ss zzz'), ($runEnd - $RunStart))
 }
 catch {
